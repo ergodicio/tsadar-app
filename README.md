@@ -6,3 +6,7 @@ To run this app, install the requirements and then run
 `python tsadar_app.py`
 
 and you should be able to view the app in a browser
+
+
+### Cloud Architecture
+![Cloud Architecture](figs/thomson-app.png)
