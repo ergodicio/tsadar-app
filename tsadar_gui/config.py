@@ -42,7 +42,7 @@ def get_species1():
     with c1:
         _c1, _c2 = st.columns(2)
         with _c1:
-            st.write("Electron Temperature")
+            st.write("Electron Temperature (keV)")
         with _c2:
             Te_active = st.checkbox("Fit Te?", value=True)
         Te_val = st.number_input("Initial value of Te", value=0.5)
@@ -52,7 +52,7 @@ def get_species1():
     with c2:
         _c1, _c2 = st.columns(2)
         with _c1:
-            st.write("Electron Density")
+            st.write("Electron Density ($10^{20} cm{^-3}$)")
         with _c2:
             ne_active = st.checkbox("Fit ne?", value=True)
         ne_val = st.number_input("Initial value of ne", value=0.2)
@@ -151,7 +151,7 @@ def get_species2():
     with c1:
         _c1, _c2 = st.columns(2)
         with _c1:
-            st.write("Ion Temperature")
+            st.write("Ion Temperature (keV)")
         with _c2:
             Ti_active = st.checkbox("Fit Ti?", value=False)
         Ti_val = st.number_input("Initial value of Ti", value=0.2)
@@ -233,7 +233,7 @@ def get_general():
     with c1:
         _c1, _c2 = st.columns(2)
         with _c1:
-            st.write("amp1")
+            st.write("amp1 - blue-shifted EPW")
         with _c2:
             amp1_active = st.checkbox("Fit amp1?", value=True)
         amp1_val = st.number_input("Initial value of amp1", value=1.0)
@@ -243,7 +243,7 @@ def get_general():
     with c2:
         _c1, _c2 = st.columns(2)
         with _c1:
-            st.write("amp2")
+            st.write("amp2 - red-shifted EPW")
         with _c2:
             amp2_active = st.checkbox("Fit amp2?", value=True)
         amp2_val = st.number_input("Initial value of amp2", value=1.0)
@@ -253,7 +253,7 @@ def get_general():
     with c3:
         _c1, _c2 = st.columns(2)
         with _c1:
-            st.write("amp3")
+            st.write("amp3 - IAW")
         with _c2:
             amp3_active = st.checkbox("Fit amp3?", value=False)
         amp3_val = st.number_input("Initial value of amp3", value=1.0)
@@ -265,7 +265,7 @@ def get_general():
     with c1:
         _c1, _c2 = st.columns(2)
         with _c1:
-            st.write("Lambda")
+            st.write("Lambda (nm)")
         with _c2:
             lam_active = st.checkbox("Fit Lambda?", value=True)
         lam_val = st.number_input("Initial value of Lambda", value=526.5)
@@ -275,7 +275,7 @@ def get_general():
     with c2:
         _c1, _c2 = st.columns(2)
         with _c1:
-            st.write("Drift Velocity?")
+            st.write("Drift Velocity? (10^6 cm/s)")
         with _c2:
             ud_active = st.checkbox("Fit ud?", value=False)
         ud_val = st.number_input("Initial value of ud", value=0.0)
@@ -286,7 +286,7 @@ def get_general():
     with c3:
         _c1, _c2 = st.columns(2)
         with _c1:
-            st.write("Flow velocity?")
+            st.write("Flow velocity? (10^6 cm/s)")
         with _c2:
             Va_active = st.checkbox("Fit Va?", value=False)
         Va_val = st.number_input("Initial value of Va", value=0.0)
@@ -299,7 +299,7 @@ def get_general():
     with c1:
         _c1, _c2 = st.columns(2)
         with _c1:
-            st.write("Te Gradient")
+            st.write("Te Gradient (% / scattering volume)")
         with _c2:
             Te_gradient_active = st.checkbox("Fit Te Gradient?", value=False)
         Te_gradient_val = st.number_input("Initial value of Te Gradient", value=0.0)
@@ -310,7 +310,7 @@ def get_general():
     with c2:
         _c1, _c2 = st.columns(2)
         with _c1:
-            st.write("ne Gradient")
+            st.write("ne Gradient (% / scattering volume)")
         with _c2:
             ne_gradient_active = st.checkbox("Fit ne Gradient?", value=False)
         ne_gradient_val = st.number_input("Initial value of ne Gradient", value=0.0)
