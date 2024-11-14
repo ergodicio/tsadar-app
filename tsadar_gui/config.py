@@ -26,6 +26,8 @@ def optimizer_section():
         "refine_factor": st.number_input("Refine factor", value=0, min_value=0, step=1),
         "num_mins": st.number_input("Number of minima", value=8, min_value=1, step=1),
         "sequential": st.checkbox("Sequential optimization", value=False),
+        "moment_loss": st.checkbox("EDF moment loss penalties", value=False),
+        "loss_method": st.selectbox("Loss method", ["l2", "l1", "poisson", "log-cosh"], index=0),
     }
 
     return optimizer
