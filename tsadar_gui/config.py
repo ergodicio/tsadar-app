@@ -500,6 +500,7 @@ def create_default_config():
                 "fit_IAW": st.checkbox("fit_IAW", value=False),
                 "fit_EPWb": st.checkbox("fit_EPWb", value=True),
                 "fit_EPWr": st.checkbox("fit_EPWr", value=True),
+                "absolute_timing": st.checkbox("absolute_timing", value=False),
                 "spectype": st.selectbox("spectype", ["temporal"]),
             },
             "PhysParams": {
