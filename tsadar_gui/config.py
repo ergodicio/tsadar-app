@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 
 
 def get_config():
@@ -385,231 +386,241 @@ def get_general():
 # Function to create an interactive dictionary structure for the merged YAML
 def create_default_config():
 
-    with st.expander("Electrons"):
-        species1 = get_species1()
+    username = st.text_input("Please input your username (must match the username you used to log in)", value="")
 
-    with st.expander("Ions"):
-        species2 = get_species2()
+    if username.casefold() in os.environ["USERNAMES"].split(","):
+        with st.expander(
+            "Mlflow - This will help you find your run on the mlflow server and helps keeps things organized"
+        ):
+            c1, c2 = st.columns(2)
+            with c1:
+                exp = st.text_input("experiment name", value=f"{username}-experiments")
 
-    with st.expander("General"):
-        general = get_general()
+            with c2:
+                run = st.text_input("run name", value=f"fit")
 
-    parameters = {
-        "species1": species1,
-        "species2": species2,
-        "general": general,
-    }
+            mlflow = {"experiment": exp, "run": run}
 
-    with st.expander("Data"):
-        # extract the inline dictionary creation from the previous code to individual streamlit calls formatted using the column structure from the previous function
-        c1, c2 = st.columns(2)
-        with c1:
-            shotnum = st.number_input("shotnum", value=101675)
-            # file upload
-            files = {}
-            epw_file = st.file_uploader("Upload the EPW file", type=["hdf"])
-            if epw_file:
-                files["epw"] = epw_file
-            iaw_file = st.file_uploader("Upload the IAW file", type=["hdf"])
-            if iaw_file:
-                files["iaw"] = iaw_file
+        with st.expander("Electron parameters"):
+            species1 = get_species1()
 
-            shotDay = st.checkbox("shotDay", value=False)
+        with st.expander("Ion parameters"):
+            species2 = get_species2()
+
+        with st.expander("General/Misc parameters"):
+            general = get_general()
+
+        parameters = {
+            "species1": species1,
+            "species2": species2,
+            "general": general,
+        }
+
+        with st.expander("Data"):
+            # extract the inline dictionary creation from the previous code to individual streamlit calls formatted using the column structure from the previous function
+            c1, c2 = st.columns(2)
+            with c1:
+                shotnum = st.number_input("shotnum", value=101675)
+                # file upload
+                files = {}
+                epw_file = st.file_uploader("Upload the EPW file", type=["hdf"])
+                if epw_file:
+                    files["epw"] = epw_file
+                iaw_file = st.file_uploader("Upload the IAW file", type=["hdf"])
+                if iaw_file:
+                    files["iaw"] = iaw_file
+
+                shotDay = st.checkbox("shotDay", value=False)
+                st.divider()
+                st.write("Which lineouts?")
+                lineout_type = st.selectbox("lineouts type", ["pixel"])
+                lineout_start = st.number_input("lineouts start", value=400)
+                lineout_end = st.number_input("lineouts end", value=600)
+                lineout_skip = st.number_input("lineouts skip", value=5)
+                st.divider()
+                probe_beam = st.selectbox("Probe Beam", ["P9"])
+            with c2:
+                st.write("Background?")
+                background_type = st.selectbox("background type", ["pixel"])
+                background_slice = st.number_input("background slice", value=900)
+                ele_t0 = st.number_input("ele_t0", value=1500.0)
+                ion_t0_shift = st.number_input("ion_t0_shift", value=900.0)
+                dpixel = st.number_input("dpixel", value=3)
+                bgscaleE = st.number_input("bgscaleE", value=1.0)
+                bgscaleI = st.number_input("bgscaleI", value=0.1)
+                launch_data_visualizer = False  # st.checkbox("launch_data_visualizer", value=True)
+                ele_lam_shift = st.number_input("ele_lam_shift", value=0.0)
+                ion_loss_scale = st.number_input("ion_loss_scale", value=2.0)
+
             st.divider()
-            st.write("Which lineouts?")
-            lineout_type = st.selectbox("lineouts type", ["pixel"])
-            lineout_start = st.number_input("lineouts start", value=400)
-            lineout_end = st.number_input("lineouts end", value=600)
-            lineout_skip = st.number_input("lineouts skip", value=5)
-            st.divider()
-            probe_beam = st.selectbox("Probe Beam", ["P9"])
-        with c2:
-            st.write("Background?")
-            background_type = st.selectbox("background type", ["pixel"])
-            background_slice = st.number_input("background slice", value=900)
-            ele_t0 = st.number_input("ele_t0", value=1500.0)
-            ion_t0_shift = st.number_input("ion_t0_shift", value=900.0)
-            dpixel = st.number_input("dpixel", value=3)
-            bgscaleE = st.number_input("bgscaleE", value=1.0)
-            bgscaleI = st.number_input("bgscaleI", value=0.1)
-            launch_data_visualizer = False  # st.checkbox("launch_data_visualizer", value=True)
-            ele_lam_shift = st.number_input("ele_lam_shift", value=0.0)
-            ion_loss_scale = st.number_input("ion_loss_scale", value=2.0)
+            st.write("Spectral Fitting Range")
+            c1, c2 = st.columns(2)
+            with c1:
+                blue_min = st.number_input("Blue Min", min_value=400, max_value=510, value=430)
+                blue_max = st.number_input("Blue Max", min_value=400, max_value=510, value=510)
+                red_min = st.number_input("Red Min", min_value=500, max_value=660, value=545)
+                red_max = st.number_input("Red Max", min_value=500, max_value=660, value=660)
+                iaw_min = st.number_input("IAW Min", min_value=500.0, max_value=530.0, value=525.5)
+                iaw_max = st.number_input("IAW Max", min_value=500.0, max_value=530.0, value=527.5)
 
-        st.divider()
-        st.write("Spectral Fitting Range")
-        c1, c2 = st.columns(2)
-        with c1:
-            blue_min = st.number_input("Blue Min", min_value=400, max_value=510, value=430)
-            blue_max = st.number_input("Blue Max", min_value=400, max_value=510, value=510)
-            red_min = st.number_input("Red Min", min_value=500, max_value=660, value=545)
-            red_max = st.number_input("Red Max", min_value=500, max_value=660, value=660)
-            iaw_min = st.number_input("IAW Min", min_value=500.0, max_value=530.0, value=525.5)
-            iaw_max = st.number_input("IAW Max", min_value=500.0, max_value=530.0, value=527.5)
+            with c2:
+                iaw_cf_min = st.number_input("IAW CF Min", min_value=526.0, max_value=527.0, value=526.49)
+                iaw_cf_max = st.number_input("IAW CF Max", min_value=526.0, max_value=527.0, value=526.51)
+                forward_epw_start = st.number_input("Forward EPW Start", min_value=300, max_value=800, value=400)
+                forward_epw_end = st.number_input("Forward EPW End", min_value=300, max_value=800, value=700)
+                forward_iaw_start = st.number_input("Forward IAW Start", min_value=500.0, max_value=530.0, value=525.75)
+                forward_iaw_end = st.number_input("Forward IAW End", min_value=500.0, max_value=530.0, value=527.25)
 
-        with c2:
-            iaw_cf_min = st.number_input("IAW CF Min", min_value=526.0, max_value=527.0, value=526.49)
-            iaw_cf_max = st.number_input("IAW CF Max", min_value=526.0, max_value=527.0, value=526.51)
-            forward_epw_start = st.number_input("Forward EPW Start", min_value=300, max_value=800, value=400)
-            forward_epw_end = st.number_input("Forward EPW End", min_value=300, max_value=800, value=700)
-            forward_iaw_start = st.number_input("Forward IAW Start", min_value=500.0, max_value=530.0, value=525.75)
-            forward_iaw_end = st.number_input("Forward IAW End", min_value=500.0, max_value=530.0, value=527.25)
+            data = {
+                "shotnum": shotnum,
+                "shotDay": shotDay,
+                "filenames": {},
+                "lineouts": {
+                    "type": lineout_type,
+                    "start": lineout_start,
+                    "end": lineout_end,
+                    "skip": lineout_skip,
+                },
+                "background": {
+                    "type": background_type,
+                    "slice": background_slice,
+                },
+                "probe_beam": probe_beam,
+                "ele_t0": ele_t0,
+                "ion_t0_shift": ion_t0_shift,
+                "dpixel": dpixel,
+                "bgscaleE": bgscaleE,
+                "bgscaleI": bgscaleI,
+                "launch_data_visualizer": launch_data_visualizer,
+                "ele_lam_shift": ele_lam_shift,
+                "ion_loss_scale": ion_loss_scale,
+                "fit_rng": {
+                    "blue_min": blue_min,
+                    "blue_max": blue_max,
+                    "red_min": red_min,
+                    "red_max": red_max,
+                    "iaw_min": iaw_min,
+                    "iaw_max": iaw_max,
+                    "iaw_cf_min": iaw_cf_min,
+                    "iaw_cf_max": iaw_cf_max,
+                    "forward_epw_start": forward_epw_start,
+                    "forward_epw_end": forward_epw_end,
+                    "forward_iaw_start": forward_iaw_start,
+                    "forward_iaw_end": forward_iaw_end,
+                },
+            }
 
-        data = {
-            "shotnum": shotnum,
-            "shotDay": shotDay,
-            "filenames": {},
-            "lineouts": {
-                "type": lineout_type,
-                "start": lineout_start,
-                "end": lineout_end,
-                "skip": lineout_skip,
-            },
-            "background": {
-                "type": background_type,
-                "slice": background_slice,
-            },
-            "probe_beam": probe_beam,
-            "ele_t0": ele_t0,
-            "ion_t0_shift": ion_t0_shift,
-            "dpixel": dpixel,
-            "bgscaleE": bgscaleE,
-            "bgscaleI": bgscaleI,
-            "launch_data_visualizer": launch_data_visualizer,
-            "ele_lam_shift": ele_lam_shift,
-            "ion_loss_scale": ion_loss_scale,
-            "fit_rng": {
-                "blue_min": blue_min,
-                "blue_max": blue_max,
-                "red_min": red_min,
-                "red_max": red_max,
-                "iaw_min": iaw_min,
-                "iaw_max": iaw_max,
-                "iaw_cf_min": iaw_cf_min,
-                "iaw_cf_max": iaw_cf_max,
-                "forward_epw_start": forward_epw_start,
-                "forward_epw_end": forward_epw_end,
-                "forward_iaw_start": forward_iaw_start,
-                "forward_iaw_end": forward_iaw_end,
-            },
+        with st.expander("Other"):
+            other = {
+                "extraoptions": {
+                    "load_ion_spec": st.checkbox("load_ion_spec", value=False),
+                    "load_ele_spec": st.checkbox("load_ele_spec", value=True),
+                    "fit_IAW": st.checkbox("fit_IAW", value=False),
+                    "fit_EPWb": st.checkbox("fit_EPWb", value=True),
+                    "fit_EPWr": st.checkbox("fit_EPWr", value=True),
+                    "absolute_timing": st.checkbox("absolute_timing", value=False),
+                    "spectype": st.selectbox("spectype", ["temporal"]),
+                },
+                "PhysParams": {
+                    "widIRF": {
+                        "spect_stddev_ion": st.number_input("spect_stddev_ion", value=0.015),
+                        "spect_stddev_ele": st.number_input("spect_stddev_ele", value=0.1),
+                        "spect_FWHM_ele": st.number_input("spect_FWHM_ele", value=0.9),
+                        "ang_FWHM_ele": st.number_input("ang_FWHM_ele", value=1.0),
+                    }
+                },
+                "refit": st.checkbox("refit", value=False),
+                "refit_thresh": st.number_input("refit_thresh", value=5.0),
+                "calc_sigmas": st.checkbox("calc_sigmas", value=False),
+                "CCDsize": st.number_input("CCD Size (uses same value for both dimensions)", value=1024),
+                "flatbg": st.checkbox("flatbg", value=False),
+                "gain": st.number_input("gain", value=1.0),
+                "points_per_pixel": st.number_input("points_per_pixel", value=1),
+                "iawoff": st.number_input("iawoff", value=0.0),
+            }
+            # Input as a comma-separated string
+            iawfilter_input = st.text_input("IAW Filter (comma-separated)", value="1, 4, 24, 528")
+
+            # Convert the input string into a list of integers
+            iawfilter = [int(i) for i in iawfilter_input.split(",")]
+            other["iawfilter"] = iawfilter
+
+            background_input = st.text_input("Background (comma-separated)", value="0, 0")
+            background = [int(i) for i in background_input.split(",")]
+
+            # Input for 'norm' as an integer value
+            norm = st.number_input("Norm", min_value=0, value=0)
+
+            # Creating the PhysParams dictionary
+            other["PhysParams"] = {"background": background, "norm": norm}
+
+            other["CCDsize"] = [other["CCDsize"], other["CCDsize"]]
+            other["username"] = username
+
+        with st.expander("Plotting"):
+            # Input for n_sigmas (integer)
+            n_sigmas = st.number_input("n_sigmas", min_value=0, value=3)
+
+            # Input for rolling_std_width (integer)
+            rolling_std_width = st.number_input("rolling_std_width", min_value=1, value=5)
+
+            # Input for data_cbar_u (string)
+            data_cbar_u = st.text_input("data_cbar_u", value="data")
+
+            # Input for data_cbar_l (integer)
+            data_cbar_l = st.number_input("data_cbar_l", min_value=0, value=0)
+
+            # Input for ion_window_start (integer)
+            ion_window_start = st.number_input("ion_window_start", min_value=500, max_value=530, value=525)
+
+            # Input for ion_window_end (integer)
+            ion_window_end = st.number_input("ion_window_end", min_value=500, max_value=530, value=528)
+
+            # Input for ele_window_start (integer)
+            ele_window_start = st.number_input("ele_window_start", min_value=400, max_value=700, value=425)
+
+            # Input for ele_window_end (integer)
+            ele_window_end = st.number_input("ele_window_end", min_value=400, max_value=700, value=660)
+
+            # Creating the plotting dictionary
+            plotting = {
+                "n_sigmas": n_sigmas,
+                "rolling_std_width": rolling_std_width,
+                "data_cbar_u": data_cbar_u,
+                "data_cbar_l": data_cbar_l,
+                "ion_window_start": ion_window_start,
+                "ion_window_end": ion_window_end,
+                "ele_window_start": ele_window_start,
+                "ele_window_end": ele_window_end,
+            }
+
+        with st.expander("Optimizer"):
+            optimizer = optimizer_section()
+
+        config = {
+            "parameters": parameters,
+            "data": data,
+            "other": other,
+            "mlflow": mlflow,
+            "optimizer": optimizer,
+            "plotting": plotting,
         }
 
-    with st.expander("Other"):
-        other = {
-            "extraoptions": {
-                "load_ion_spec": st.checkbox("load_ion_spec", value=False),
-                "load_ele_spec": st.checkbox("load_ele_spec", value=True),
-                "fit_IAW": st.checkbox("fit_IAW", value=False),
-                "fit_EPWb": st.checkbox("fit_EPWb", value=True),
-                "fit_EPWr": st.checkbox("fit_EPWr", value=True),
-                "absolute_timing": st.checkbox("absolute_timing", value=False),
-                "spectype": st.selectbox("spectype", ["temporal"]),
-            },
-            "PhysParams": {
-                "widIRF": {
-                    "spect_stddev_ion": st.number_input("spect_stddev_ion", value=0.015),
-                    "spect_stddev_ele": st.number_input("spect_stddev_ele", value=0.1),
-                    "spect_FWHM_ele": st.number_input("spect_FWHM_ele", value=0.9),
-                    "ang_FWHM_ele": st.number_input("ang_FWHM_ele", value=1.0),
-                }
-            },
-            "refit": st.checkbox("refit", value=False),
-            "refit_thresh": st.number_input("refit_thresh", value=5.0),
-            "calc_sigmas": st.checkbox("calc_sigmas", value=False),
-            "CCDsize": st.number_input("CCD Size (uses same value for both dimensions)", value=1024),
-            "flatbg": st.checkbox("flatbg", value=False),
-            "gain": st.number_input("gain", value=1.0),
-            "points_per_pixel": st.number_input("points_per_pixel", value=1),
-            "iawoff": st.number_input("iawoff", value=0.0),
-        }
-        # Input as a comma-separated string
-        iawfilter_input = st.text_input("IAW Filter (comma-separated)", value="1, 4, 24, 528")
+        if epw_file is not None:
+            if str(config["data"]["shotnum"]) in epw_file.name:
+                config["data"]["filenames"]["epw"] = epw_file.name
+            else:
+                st.error("The EPW file name does not match the shot number")
 
-        # Convert the input string into a list of integers
-        iawfilter = [int(i) for i in iawfilter_input.split(",")]
-        other["iawfilter"] = iawfilter
+        if iaw_file is not None:
+            if str(config["data"]["shotnum"]) in iaw_file.name:
+                config["data"]["filenames"]["iaw"] = iaw_file.name
+            else:
+                st.error("The IAW file name does not match the shot number")
 
-        background_input = st.text_input("Background (comma-separated)", value="0, 0")
-        background = [int(i) for i in background_input.split(",")]
-
-        # Input for 'norm' as an integer value
-        norm = st.number_input("Norm", min_value=0, value=0)
-
-        # Creating the PhysParams dictionary
-        other["PhysParams"] = {"background": background, "norm": norm}
-
-        other["CCDsize"] = [other["CCDsize"], other["CCDsize"]]
-
-    with st.expander("Plotting"):
-        # Input for n_sigmas (integer)
-        n_sigmas = st.number_input("n_sigmas", min_value=0, value=3)
-
-        # Input for rolling_std_width (integer)
-        rolling_std_width = st.number_input("rolling_std_width", min_value=1, value=5)
-
-        # Input for data_cbar_u (string)
-        data_cbar_u = st.text_input("data_cbar_u", value="data")
-
-        # Input for data_cbar_l (integer)
-        data_cbar_l = st.number_input("data_cbar_l", min_value=0, value=0)
-
-        # Input for ion_window_start (integer)
-        ion_window_start = st.number_input("ion_window_start", min_value=500, max_value=530, value=525)
-
-        # Input for ion_window_end (integer)
-        ion_window_end = st.number_input("ion_window_end", min_value=500, max_value=530, value=528)
-
-        # Input for ele_window_start (integer)
-        ele_window_start = st.number_input("ele_window_start", min_value=400, max_value=700, value=425)
-
-        # Input for ele_window_end (integer)
-        ele_window_end = st.number_input("ele_window_end", min_value=400, max_value=700, value=660)
-
-        # Creating the plotting dictionary
-        plotting = {
-            "n_sigmas": n_sigmas,
-            "rolling_std_width": rolling_std_width,
-            "data_cbar_u": data_cbar_u,
-            "data_cbar_l": data_cbar_l,
-            "ion_window_start": ion_window_start,
-            "ion_window_end": ion_window_end,
-            "ele_window_start": ele_window_start,
-            "ele_window_end": ele_window_end,
-        }
-
-    with st.expander("Mlflow"):
-
-        c1, c2 = st.columns(2)
-        with c1:
-            exp = st.text_input("experiment", value="inverse-thomson-scattering")
-
-        with c2:
-            run = st.text_input("run", value="test")
-
-        mlflow = {"experiment": exp, "run": run}
-
-    with st.expander("Optimizer"):
-        optimizer = optimizer_section()
-
-    config = {
-        "parameters": parameters,
-        "data": data,
-        "other": other,
-        "mlflow": mlflow,
-        "optimizer": optimizer,
-        "plotting": plotting,
-    }
-
-    if epw_file is not None:
-        if str(config["data"]["shotnum"]) in epw_file.name:
-            config["data"]["filenames"]["epw"] = epw_file.name
-        else:
-            st.error("The EPW file name does not match the shot number")
-
-    if iaw_file is not None:
-        if str(config["data"]["shotnum"]) in iaw_file.name:
-            config["data"]["filenames"]["iaw"] = iaw_file.name
-        else:
-            st.error("The IAW file name does not match the shot number")
+    else:
+        config = {}
+        files = []
+        st.error("The username you entered does not match the list of valid usernames")
 
     return config, files
