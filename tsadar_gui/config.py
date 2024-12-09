@@ -150,84 +150,91 @@ def get_species2():
 
     # extract the inline dictionary creation that follows to individual streamlit calls formatted using the column structure from the previous function
     st.divider()
-    c1, c2 = st.columns(2)
-    with c1:
-        _c1, _c2 = st.columns(2)
-        with _c1:
-            st.write("Ion Temperature (keV)")
-        with _c2:
-            Ti_active = st.checkbox("Fit Ti?", value=False)
-        Ti_val = st.number_input("Initial value of Ti", value=0.2)
-        Ti_lb = st.number_input("Lower bound for Ti", value=0.01)
-        Ti_ub = st.number_input("Upper bound for Ti", value=1.5)
-        Ti_same = st.checkbox("Same Ti?", value=False)
+    num_species = st.number_input("Number of ion species", value=1, min_value=1, max_value=10)
+    Ti_same = st.checkbox("Same Ti across all ion species?", value=False)
+    ion_dict = {}
+    for i in range(num_species):
+        st.subheader(f"Ion Species {i+1}")
+        c1, c2 = st.columns(2)
+        with c1:
+            _c1, _c2 = st.columns(2)
+            with _c1:
+                st.write("Ion Temperature (keV)")
+            with _c2:
+                Ti_active = st.checkbox("Fit Ti?", value=False, key=f"Ti_active_{i}")
+            Ti_val = st.number_input("Initial value of Ti", value=0.2, key=f"Ti_val_{i}")
+            Ti_lb = st.number_input("Lower bound for Ti", value=0.01, key=f"Ti_lb_{i}")
+            Ti_ub = st.number_input("Upper bound for Ti", value=1.5, key=f"Ti_ub_{i}")
 
-    with c2:
-        _c1, _c2 = st.columns(2)
-        with _c1:
-            st.write("Ion Charge")
-        with _c2:
-            Z_active = st.checkbox("Fit Z?", value=False)
-        Z_val = st.number_input("Initial value of Z", value=10.0)
-        Z_lb = st.number_input("Lower bound for Z", value=1.0)
-        Z_ub = st.number_input("Upper bound for Z", value=18.0)
+        with c2:
+            _c1, _c2 = st.columns(2)
+            with _c1:
+                st.write("Ion Charge")
+            with _c2:
+                Z_active = st.checkbox("Fit Z?", value=False, key=f"Z_active_{i}")
+            Z_val = st.number_input("Initial value of Z", value=10.0, key=f"Z_val_{i}")
+            Z_lb = st.number_input("Lower bound for Z", value=1.0, key=f"Z_lb_{i}")
+            Z_ub = st.number_input("Upper bound for Z", value=18.0, key=f"Z_ub_{i}")
 
-    st.divider()
+        st.divider()
 
-    c1, c2 = st.columns(2)
-    with c1:
-        # _c1, _c2 = st.columns(2)
-        # with _c1:
-        st.write("Ion Mass")
-        # with _c2:
-        A_active = False
-        A_val = st.number_input("Value of A", value=40.0)
-        A_lb = 1.0
-        A_ub = 100.0
+        c1, c2 = st.columns(2)
+        with c1:
+            # _c1, _c2 = st.columns(2)
+            # with _c1:
+            st.write("Ion Mass")
+            # with _c2:
+            A_active = False
+            A_val = st.number_input("Value of A", value=40.0, key=f"A_val_{i}")
+            A_lb = 1.0
+            A_ub = 100.0
 
-    with c2:
-        _c1, _c2 = st.columns(2)
-        with _c1:
-            st.write("Ion Fraction")
-        with _c2:
-            fract_active = st.checkbox("Fit fract?", value=False)
-        fract_val = st.number_input("Initial value of fract", value=1.0)
-        fract_lb = st.number_input("Lower bound for fract", value=0.0)
-        fract_ub = st.number_input("Upper bound for fract", value=1.0)
+        with c2:
+            _c1, _c2 = st.columns(2)
+            with _c1:
+                st.write("Ion Fraction")
+            with _c2:
+                fract_active = st.checkbox("Fit fract?", value=False, key=f"fract_active_{i}")
+            fract_val = st.number_input("Initial value of fract", value=1.0, key=f"fract_val_{i}")
+            fract_lb = st.number_input("Lower bound for fract", value=0.0, key=f"fract_lb_{i}")
+            fract_ub = st.number_input("Upper bound for fract", value=1.0, key=f"fract_ub_{i}")
 
-    species2 = {
-        "type": {
-            "ion": "ion",
-            "active": False,  # st.checkbox("species2 type active", value=False),
-        },
-        "Ti": {
-            "val": Ti_val,
-            "active": Ti_active,
-            "lb": Ti_lb,
-            "ub": Ti_ub,
-            "same": Ti_same,
-        },
-        "Z": {
-            "val": Z_val,
-            "active": Z_active,
-            "lb": Z_lb,
-            "ub": Z_ub,
-        },
-        "A": {
-            "val": A_val,
-            "active": A_active,
-            "lb": A_lb,
-            "ub": A_ub,
-        },
-        "fract": {
-            "val": fract_val,
-            "active": fract_active,
-            "lb": fract_lb,
-            "ub": fract_ub,
-        },
-    }
+        st.divider()
+        st.divider()
 
-    return species2
+        ion_dict[f"species{i+2}"] = {
+            "type": {
+                "ion": "ion",
+                "active": False,  # st.checkbox("species2 type active", value=False),
+            },
+            "Ti": {
+                "val": Ti_val,
+                "active": Ti_active,
+                "lb": Ti_lb,
+                "ub": Ti_ub,
+                "same": Ti_same,
+            },
+            "Z": {
+                "val": Z_val,
+                "active": Z_active,
+                "lb": Z_lb,
+                "ub": Z_ub,
+            },
+            "A": {
+                "val": A_val,
+                "active": A_active,
+                "lb": A_lb,
+                "ub": A_ub,
+            },
+            "fract": {
+                "val": fract_val,
+                "active": fract_active,
+                "lb": fract_lb,
+                "ub": fract_ub,
+            },
+        }
+
+    return ion_dict
 
 
 def get_general():
@@ -405,16 +412,17 @@ def create_default_config():
             species1 = get_species1()
 
         with st.expander("Ion parameters"):
-            species2 = get_species2()
+            ion_dict = get_species2()
 
         with st.expander("General/Misc parameters"):
             general = get_general()
 
         parameters = {
             "species1": species1,
-            "species2": species2,
+            # "species2": species2,
             "general": general,
         }
+        parameters = parameters | ion_dict
 
         with st.expander("Data"):
             # extract the inline dictionary creation from the previous code to individual streamlit calls formatted using the column structure from the previous function
