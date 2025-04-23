@@ -4,6 +4,7 @@ channels:
 dependencies:
   - python=3.11
   - pip
+  - git
 # install pip requirements
   - pip:
     - -r requirements.txt

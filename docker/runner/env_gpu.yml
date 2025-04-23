@@ -6,6 +6,7 @@ dependencies:
   - pip
   - pyhdf
   - xlrd
+  - git
   - pip:
       - "jax[cuda12]"
       - jaxopt
