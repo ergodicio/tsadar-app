@@ -78,10 +78,12 @@ jobs:
         run: |
           pip install tesseract-core
           tesseract --loglevel debug build tesseract/ --tag $IMAGE_TAG
+          docker tag $IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
       - name: Push all images to Amazon ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: continuum
         run: |
+          
           docker push --all-tags $ECR_REGISTRY/$ECR_REPOSITORY
