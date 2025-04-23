@@ -1,2 +1,4 @@
-git+https://github.com/ergodicio/tsadar.git
+mlflow
+numpy
 streamlit
+boto3

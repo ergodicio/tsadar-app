@@ -2,13 +2,8 @@ name: base
 channels:
   - conda-forge
 dependencies:
-  - python=3.10
+  - python=3.11
   - pip
 # install pip requirements
   - pip:
-    - mlflow
-    - numpy
-    - streamlit
-    - boto3
-    - protobuf==3.20.*
-    # - git+https://github.com/ergodicio/tsadar.git
+    - -r requirements.txt
