@@ -101,18 +101,19 @@ def get_electron():
             "lb": ne_lb,
             "ub": ne_ub,
         },
-        "m": {
-            "val": m_val,
-            "active": m_active,
-            "lb": m_lb,
-            "ub": m_ub,
-            "matte": m_matte,
-            "intens": m_intens,
-        },
+        # "m": {
+        #     "val": m_val,
+        #     "active": m_active,
+        #     "lb": m_lb,
+        #     "ub": m_ub,
+        #     "matte": m_matte,
+        #     "intens": m_intens,
+        # },
         "fe": {
             "active": fe_active,
-            "nv": fe_nv,
-            "type": {"DLM": fe_type},
+            "nvx": fe_nv,
+            "type": "DLM",
+            "params": {"m": {"val": 2.0, "ub": 5.0, "lb": 2.0}},
             "dim": 1,
         },
     }
@@ -154,10 +155,7 @@ def get_ions():
 
         c1, c2 = st.columns(2)
         with c1:
-            # _c1, _c2 = st.columns(2)
-            # with _c1:
             st.write("Ion Mass")
-            # with _c2:
             A_active = False
             A_val = st.number_input("Value of A", value=40.0, key=f"A_val_{i}")
             A_lb = 1.0
@@ -391,11 +389,7 @@ def create_default_config():
         with st.expander("General/Misc parameters"):
             general = get_general()
 
-        parameters = {
-            "electron": electron,
-            "ions": ion_dict,
-            "general": general,
-        }
+        parameters = {"electron": electron, "general": general}
         parameters = parameters | ion_dict
 
         with st.expander("Data"):

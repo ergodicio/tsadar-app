@@ -1,67 +1,44 @@
 parameters:
-    species1:
-        type:
-            electron:
-            active: False
+    electron:
         Te:
-            val: .2
+            val: .5
             active: True
-            lb: 0.01
+            lb: 0.001
             ub: 1.5
         ne:
-            val: 0.08
+            val: .2
             active: True
-            lb: 0.03
-            ub: 1.0
-        m:
-            val: 2.0
-            active: False
-            lb: 2.0
-            ub: 5.0
-            matte: False
-            intens: 2.0
+            lb: .001
+            ub: 1.
         fe:
-            val: [ ]
-            active: False
-            length: 3999
-            type:
-                DLM:
-            lb: -100.
-            ub: -0.5
-            fe_decrease_strict: False
-            symmetric: False
+            active: True
+            type: dlm
             dim: 1
-            v_res: 0.05
-            temp_asym: 1.0
-            m_theta: 0.0
-            m_asym: 1.
-
-    species2:
-        type:
-            ion:
-            active: False
+            nv: 64
+            params:
+                m:
+                    val: 2.5
+                    lb: 2.0
+                    ub: 5.0
+    ion-1:
         Ti:
-            val: 0.08
+            val: .2
             active: False
-            same: False
             lb: 0.01
-            ub: 1.0
+            ub: 3.
+            same: False
         Z:
-            val: 10.0
+            val: 8.
             active: False
-            lb: 1.0
-            ub: 18.0
+            lb: 1.
+            ub: 25.
         A:
-            val: 40.0
+            val: 40.
             active: False
         fract:
-            val: 1.0
+            val: 1.
             active: False
-
     general:
-        type:
-            general:
-            active: False
         amp1:
             val: 1.
             active: True
@@ -73,15 +50,15 @@ parameters:
             lb: 0.01
             ub: 3.75
         amp3:
-            val: 1.0
+            val: 1.
             active: False
-            lb: 0.01
-            ub: 3.75
+            lb: 0.
+            ub: 10.
         lam:
-            val: 526.5
-            active: False
-            lb: 523.0
-            ub: 528.0
+            val: 524.0
+            active: True
+            lb: 523.
+            ub: 528.
         Te_gradient:
             val: 0.0
             active: False
@@ -107,38 +84,9 @@ parameters:
             lb: -20.5
             ub: 20.5
 
-data:
-    shotnum: 101675
-    lineouts:
-        type:
-            ps
-        start: 800
-        end: 880
-        skip: 10
-    background:
-        type:
-            pixel
-        slice: 900
 
 other:
-    extraoptions:
-        load_ion_spec: False
-        load_ele_spec: True
-        fit_IAW: False
-        fit_EPWb: True
-        fit_EPWr: True
-        spectype: temporal
-    PhysParams:
-        widIRF:
-            spect_stddev_ion: 0.015
-            spect_stddev_ele: 0.1
-            spect_FWHM_ele: 0.9
-            ang_FWHM_ele: 1.0
     refit: False
     refit_thresh: 5.0
-    calc_sigmas: False
+    calc_sigmas: false
 
-
-mlflow:
-    experiment: inverse-thomson-scattering
-    run: test
