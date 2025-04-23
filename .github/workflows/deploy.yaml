@@ -77,7 +77,7 @@ jobs:
           IMAGE_TAG: tsadar-tesseract-v0.1.1
         run: |
           pip install tesseract-core
-          tesseract --loglevel debug build tesseract/ --tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          tesseract --loglevel debug build tesseract/ --tag $IMAGE_TAG
 
       - name: Push all images to Amazon ECR
         env:
