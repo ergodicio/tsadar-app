@@ -34,11 +34,7 @@ def optimizer_section():
     return optimizer
 
 
-def get_species1():
-
-    # Define variables using Streamlit widgets
-    species1_type = "electron"  # st.selectbox("species1 type", ["electron"])
-    species1_type_active = False  # st.checkbox("species1 type active", value=False)
+def get_electron():
 
     c1, c2 = st.columns(2)
 
@@ -87,25 +83,12 @@ def get_species1():
             st.write("Distribution Function")
         with _c2:
             fe_active = st.checkbox("Fit f?", value=False)
-        fe_val = st.text_area("fe val", value="[]")
-        fe_length = st.number_input("fe length", value=1024)
-        fe_type = st.selectbox("fe type", ["DLM"])
-        fe_lb = st.number_input("fe lb", value=-100.0)
-        fe_ub = st.number_input("fe ub", value=-0.5)
-        fe_decrease_strict = st.checkbox("fe decrease strict", value=False)
-        fe_symmetric = st.checkbox("fe symmetric", value=False)
+        fe_nv = st.number_input("$N_v$", value=1024)
+        fe_type = st.selectbox("fe type", ["dlm"])
         fe_dim = st.number_input("fe dim", value=1)
-        fe_v_res = st.number_input("fe v_res", value=0.05)
-        fe_temp_asym = st.number_input("fe temp_asym", value=1.0)
-        fe_m_theta = st.number_input("fe m_theta", value=0.0)
-        fe_m_asym = st.number_input("fe m_asym", value=1.0)
 
     # Use the variables to populate the dictionary
-    species1 = {
-        "type": {
-            "electron": species1_type,
-            "active": species1_type_active,
-        },
+    electron_params = {
         "Te": {
             "val": Te_val,
             "active": Te_active,
@@ -118,35 +101,27 @@ def get_species1():
             "lb": ne_lb,
             "ub": ne_ub,
         },
-        "m": {
-            "val": m_val,
-            "active": m_active,
-            "lb": m_lb,
-            "ub": m_ub,
-            "matte": m_matte,
-            "intens": m_intens,
-        },
+        # "m": {
+        #     "val": m_val,
+        #     "active": m_active,
+        #     "lb": m_lb,
+        #     "ub": m_ub,
+        #     "matte": m_matte,
+        #     "intens": m_intens,
+        # },
         "fe": {
-            "val": fe_val,
             "active": fe_active,
-            "length": fe_length,
-            "type": {"DLM": fe_type},
-            "lb": fe_lb,
-            "ub": fe_ub,
-            "fe_decrease_strict": fe_decrease_strict,
-            "symmetric": fe_symmetric,
-            "dim": fe_dim,
-            "v_res": fe_v_res,
-            "temp_asym": fe_temp_asym,
-            "m_theta": fe_m_theta,
-            "m_asym": fe_m_asym,
+            "nvx": fe_nv,
+            "type": "DLM",
+            "params": {"m": {"val": 2.0, "ub": 5.0, "lb": 2.0}},
+            "dim": 1,
         },
     }
 
-    return species1
+    return electron_params
 
 
-def get_species2():
+def get_ions():
 
     # extract the inline dictionary creation that follows to individual streamlit calls formatted using the column structure from the previous function
     st.divider()
@@ -180,10 +155,7 @@ def get_species2():
 
         c1, c2 = st.columns(2)
         with c1:
-            # _c1, _c2 = st.columns(2)
-            # with _c1:
             st.write("Ion Mass")
-            # with _c2:
             A_active = False
             A_val = st.number_input("Value of A", value=40.0, key=f"A_val_{i}")
             A_lb = 1.0
@@ -202,7 +174,7 @@ def get_species2():
         st.divider()
         st.divider()
 
-        ion_dict[f"species{i+2}"] = {
+        ion_dict[f"ion-{i+1}"] = {
             "type": {
                 "ion": "ion",
                 "active": False,  # st.checkbox("species2 type active", value=False),
@@ -409,19 +381,15 @@ def create_default_config():
             mlflow = {"experiment": exp, "run": run}
 
         with st.expander("Electron parameters"):
-            species1 = get_species1()
+            electron = get_electron()
 
         with st.expander("Ion parameters"):
-            ion_dict = get_species2()
+            ion_dict = get_ions()
 
         with st.expander("General/Misc parameters"):
             general = get_general()
 
-        parameters = {
-            "species1": species1,
-            # "species2": species2,
-            "general": general,
-        }
+        parameters = {"electron": electron, "general": general}
         parameters = parameters | ion_dict
 
         with st.expander("Data"):

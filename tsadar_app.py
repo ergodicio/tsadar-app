@@ -3,10 +3,7 @@ import yaml, os, mlflow, tempfile, boto3
 
 from tsadar_gui import config
 
-
-def process_file(file_path):
-    # Dummy function to process the file
-    return f"Processing file: {file_path}"
+DEBUG = False
 
 
 if __name__ == "__main__":
@@ -14,7 +11,6 @@ if __name__ == "__main__":
     st.sidebar.title("TSADARapp")
 
     # select box between forward and fit
-    # mode = st.sidebar.selectbox("How are you providing the configuration options?", ["file", "gui"])
     mode = st.sidebar.selectbox("Where to?", ["Home", "Fit"])
 
     config_dir = os.path.join(os.getcwd(), "temp")
@@ -35,35 +31,40 @@ if __name__ == "__main__":
 
         c1, c2 = st.columns(2)
 
-        with c1:
-            if st.button("Preview"):
-                # not implemented
-                st.write("Preview not implemented yet")
-                # plot.plot_data()
+        # with c1:
+        #     if st.button("Preview"):
+        #         # not implemented
+        #         st.write("Preview not implemented yet")
+        #         # plot.plot_data()
 
-        with c2:
-            if st.button("Fit"):
-                # run and wait for the results
-                mlflow.set_experiment(cfg["mlflow"]["experiment"])
+        # with c2:
+        if st.button("Fit"):
+            # run and wait for the results
+            mlflow.set_experiment(cfg["mlflow"]["experiment"])
 
-                with tempfile.TemporaryDirectory() as tempdir:
-                    with mlflow.start_run(run_name=cfg["mlflow"]["run"]) as mlflow_run:
-                        # write config yaml to disk
-                        with open(os.path.join(tempdir, "config.yaml"), "w") as f:
-                            yaml.dump(cfg, f)
+            with tempfile.TemporaryDirectory() as tempdir:
+                with mlflow.start_run(run_name=cfg["mlflow"]["run"]) as mlflow_run:
+                    # write config yaml to disk
+                    with open(os.path.join(tempdir, "config.yaml"), "w") as f:
+                        yaml.dump(cfg, f)
 
-                        # write uploaded streamlit file to disk
-                        for k, fl in files.items():
-                            with open(os.path.join(tempdir, fl.name), "wb") as f:
-                                f.write(fl.read())
+                    # write uploaded streamlit file to disk
+                    for k, fl in files.items():
+                        with open(os.path.join(tempdir, fl.name), "wb") as f:
+                            f.write(fl.read())
 
-                        mlflow.log_artifacts(tempdir)
-                        run_id = mlflow_run.info.run_id
+                    mlflow.log_artifacts(tempdir)
+                    run_id = mlflow_run.info.run_id
 
-                # requests.post(
-                #     "http://sciapi.continuum/queue-run",
-                #     data={"jq_nm": "gpu", "jd_nm": "gpu", "job_name": "thomson", "run_type": "dm", "run_id": run_id},
-                # )
+            # requests.post(
+            #     "http://sciapi.continuum/queue-run",
+            #     data={"jq_nm": "gpu", "jd_nm": "gpu", "job_name": "thomson", "run_type": "dm", "run_id": run_id},
+            # )
+            if DEBUG:
+                from tsadar import run_for_app
+
+                run_for_app(run_id)
+            else:
                 client = boto3.client("batch", region_name="us-east-1")
 
                 job_template = {
@@ -78,10 +79,8 @@ if __name__ == "__main__":
                 }
                 submissionResult = client.submit_job(**job_template)
                 st.write(
-                    f"The job is queued. The status and results can be found at the mlflow experiment {cfg['mlflow']['experiment']} and run id {run_id}. Email support@ergodic.io if you have any trouble."
+                    f"The job is queued. The status and results can be found at https://continuum.ergodic.io/tsadar under the experiment -- {cfg['mlflow']['experiment']} -- and run id -- {run_id} --. Email support@ergodic.io if you have any trouble."
                 )
-
-                # run_for_app(run_id)
 
     st.sidebar.title("About")
     ## Add attribution
