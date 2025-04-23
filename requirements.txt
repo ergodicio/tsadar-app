@@ -1,2 +1,2 @@
-git+https://github.com/ergodicio/tsadar.git
+git+https://github.com/ergodicio/tsadar.git@v0.1.1
 streamlit
