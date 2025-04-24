@@ -568,6 +568,7 @@ def create_default_config():
                 "ion_window_end": ion_window_end,
                 "ele_window_start": ele_window_start,
                 "ele_window_end": ele_window_end,
+                "detailed_breakdown": False,
             }
 
         with st.expander("Optimizer"):
