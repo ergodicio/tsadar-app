@@ -20,7 +20,7 @@ from flatten_dict import flatten, unflatten
 from tesseract_core import Tesseract
 
 # if DEBUG:
-tesseract_url = "http://localhost:54294"  # os.environ["TESSERACT_URI"]  # "http://localhost:54294"  # Change this to the correct address
+tesseract_url = os.environ["TESSERACT_URI"]  # "http://localhost:54294"  # Change this to the correct address
 
 tsadaract = Tesseract(url=tesseract_url)
 

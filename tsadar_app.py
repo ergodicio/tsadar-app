@@ -33,13 +33,6 @@ if __name__ == "__main__":
 
         c1, c2 = st.columns(2)
 
-        # with c1:
-        #     if st.button("Preview"):
-        #         # not implemented
-        #         st.write("Preview not implemented yet")
-        #         # plot.plot_data()
-
-        # with c2:
         if st.button("Fit"):
             # run and wait for the results
             mlflow.set_experiment(cfg["mlflow"]["experiment"])
