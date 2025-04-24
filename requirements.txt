@@ -1,4 +1,4 @@
-git+https://github.com/ergodicio/tsadar.git
+git+https://github.com/ergodicio/tsadar.git@v0.1.2
 streamlit
 boto3
 mlflow
