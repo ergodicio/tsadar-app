@@ -39,14 +39,6 @@ jobs:
         run: |
           docker build -f docker/app/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
 
-      - name: Build and tag runner image to Amazon ECR
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: continuum
-          IMAGE_TAG: tsadar-runner-v0.1.2
-        run: |
-          docker build -f docker/runner/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-
       - name: Push all images to Amazon ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
