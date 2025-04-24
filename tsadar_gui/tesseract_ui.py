@@ -19,8 +19,12 @@ from flatten_dict import flatten, unflatten
 
 from tesseract_core import Tesseract
 
-# if DEBUG:
-tesseract_url = os.environ["TESSERACT_URI"]  # "http://localhost:54294"  # Change this to the correct address
+DEBUG = False
+
+if DEBUG:
+    tesseract_url = "http://localhost:54294"
+else:
+    tesseract_url = os.environ["TESSERACT_URI"]
 
 tsadaract = Tesseract(url=tesseract_url)
 
@@ -148,7 +152,9 @@ def tesseract_ui():
     fig.update_layout(title="Electron Spectrum", xaxis_title="Wavelength", yaxis_title="Amplitude")
     fig_holder.plotly_chart(fig)
 
-    opt = optax.adam(0.05)
+    learning_rate = st.number_input("Learning Rate", value=0.01, step=0.001, key="learning_rate")
+    opt = optax.adam(learning_rate)
+
     diff_params, static_params = eqx.partition(
         fit_ts_params, filter_spec=get_filter_spec(cfg_params=config["parameters"], ts_params=fit_ts_params)
     )
@@ -175,6 +181,9 @@ def tesseract_ui():
 
             fig.data[1].y = electron_spectrum
             fig.data[1].name = f"Step {i+1}"
+            fig.update_layout(
+                title=f"Electron Spectrum, Loss = {loss:.2e}", xaxis_title="Wavelength", yaxis_title="Amplitude"
+            )
             fig_holder.plotly_chart(fig)
 
             fit_param_holder.write("Estimated parameters:")
@@ -190,7 +199,6 @@ def get_fitted_params_for_ui(fit_parameters, diff_params, static_params):
     diff_params = eqx.tree_at(lambda x: x.general.normed_lam, diff_params, to_arr(fit_parameters["lam"]))
     fit_ts_params = eqx.combine(diff_params, static_params)
     updated_fitted_parameters, _ = fit_ts_params.get_fitted_params(config["parameters"])
-    # updated_fitted_parameters = {k: v[0] for k, v in updated_fitted_parameters.items() if k in diff_wrt_to}
     updated_fitted_parameters = clean_dict(updated_fitted_parameters)
     return updated_fitted_parameters
 

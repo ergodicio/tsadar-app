@@ -3,13 +3,10 @@ import os
 
 
 def get_config():
-    st.subheader(
-        "Provide the configuration options for the experiment as well as analysis using the following dropdowns and input fields."
-    )
-    st.write("More details can be found in the documentation at < >")
+
+    # st.write("More details can be found in the documentation at < >")
 
     config, files = create_default_config()
-    # inputs = get_inputs()
     return config, files
 
 
