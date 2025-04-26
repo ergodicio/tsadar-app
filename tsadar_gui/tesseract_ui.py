@@ -19,14 +19,6 @@ from flatten_dict import flatten, unflatten
 
 from tesseract_core import Tesseract
 
-DEBUG = False
-
-if DEBUG:
-    tesseract_url = "http://localhost:54294"
-else:
-    tesseract_url = os.environ["TESSERACT_URI"]
-
-tsadaract = Tesseract(url=tesseract_url)
 
 with open("./tesseract/1d-defaults.yaml", "r") as f:
     defaults = yaml.safe_load(f)
@@ -63,7 +55,7 @@ def mse(pred: np.ndarray, true: np.ndarray) -> float:
     return mse
 
 
-def grad_fn(parameters: np.ndarray, true_electron_spectrum: np.ndarray) -> np.ndarray:
+def grad_fn(parameters: np.ndarray, true_electron_spectrum: np.ndarray, tsadaract: Tesseract) -> np.ndarray:
     """Compute the gradient of the MSE loss function with respect to the parameters."""
     # Compute the gradient
 
@@ -93,7 +85,9 @@ def create_parameter_dict(_ts_params: ThomsonParams) -> dict:
     return parameters
 
 
-def tesseract_ui():
+def tesseract_ui(tesseract_url):
+
+    tsadaract = Tesseract(url=tesseract_url)
     # Sample random true parameters
     col1, col2 = st.columns(2)
 
@@ -172,7 +166,7 @@ def tesseract_ui():
             parameters_np = to_numpy(fit_parameters)
             electron_spectrum = tsadaract.apply(fit_parameters)["electron_spectrum"]
             loss, grad_loss = mse(electron_spectrum, true_electron_spectrum), grad_fn(
-                parameters_np, true_electron_spectrum
+                parameters_np, true_electron_spectrum, tsadaract
             )
 
             updates, opt_state = opt.update(grad_loss, opt_state)

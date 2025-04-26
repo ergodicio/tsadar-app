@@ -3,7 +3,12 @@ import yaml, os, mlflow, tempfile, boto3
 
 from tsadar_gui import config, tesseract_ui
 
-DEBUG = False
+DEBUG = False if "RANDOM_VAR" in os.environ else True
+
+if DEBUG:
+    tesseract_url = "http://localhost:54294"
+else:
+    tesseract_url = os.environ["TESSERACT_URI"]
 
 
 if __name__ == "__main__":
@@ -11,7 +16,7 @@ if __name__ == "__main__":
     st.sidebar.title("TSADARapp")
 
     # select box between forward and fit
-    mode = st.sidebar.selectbox("Where to?", ["Home", "Queue Fitting Job", "Tesseract (Experimental)"])
+    mode = st.sidebar.selectbox("Where to?", ["Home", "Queue Fitting Job", "Interactive (Under Development)"])
 
     config_dir = os.path.join(os.getcwd(), "temp")
 
@@ -80,7 +85,9 @@ if __name__ == "__main__":
             "This is an experimental feature that queries a Tesseract to analyze Thomson scattering data. "
             "For now, functionality is limited to fitting to randomly generated synthetic spectra rather than real data from OMEGA."
         )
-        tesseract_ui.tesseract_ui()
+        tesseract_ui.tesseract_ui(tesseract_url)
+    else:
+        st.header("Wrong page, you should not be here. Report this bug!")
 
     st.sidebar.title("About")
     ## Add attribution
