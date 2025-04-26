@@ -3,7 +3,7 @@ import yaml, os, mlflow, tempfile, boto3
 
 from tsadar_gui import config, tesseract_ui
 
-DEBUG = True
+DEBUG = False
 
 
 if __name__ == "__main__":

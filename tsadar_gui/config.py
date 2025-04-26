@@ -377,18 +377,7 @@ def create_default_config():
 
             mlflow = {"experiment": exp, "run": run}
 
-        with st.expander("Electron parameters"):
-            electron = get_electron()
-
-        with st.expander("Ion parameters"):
-            ion_dict = get_ions()
-
-        with st.expander("General/Misc parameters"):
-            general = get_general()
-
-        parameters = {"electron": electron, "general": general}
-        parameters = parameters | ion_dict
-
+        st.write("You MUST upload one of EPW or IAW files")
         with st.expander("Data"):
             # extract the inline dictionary creation from the previous code to individual streamlit calls formatted using the column structure from the previous function
             c1, c2 = st.columns(2)
@@ -482,6 +471,19 @@ def create_default_config():
                     "forward_iaw_end": forward_iaw_end,
                 },
             }
+
+        st.write("Initialize parameters here and choose which ones to fit")
+        with st.expander("Electron parameters"):
+            electron = get_electron()
+
+        with st.expander("Ion parameters"):
+            ion_dict = get_ions()
+
+        with st.expander("General/Misc parameters"):
+            general = get_general()
+
+        parameters = {"electron": electron, "general": general}
+        parameters = parameters | ion_dict
 
         with st.expander("Other"):
             other = {
