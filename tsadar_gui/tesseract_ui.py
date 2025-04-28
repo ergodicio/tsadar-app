@@ -4,7 +4,7 @@ from jax import config as jax_config
 jax_config.update("jax_enable_x64", True)
 
 import numpy as np
-import os
+import boto3
 
 
 import tqdm, optax, equinox as eqx, yaml
@@ -87,102 +87,135 @@ def create_parameter_dict(_ts_params: ThomsonParams) -> dict:
 
 def tesseract_ui(tesseract_url):
 
-    tsadaract = Tesseract(url=tesseract_url)
-    # Sample random true parameters
-    col1, col2 = st.columns(2)
+    # check if ecs service is running using boto3
+    ecs = boto3.client("ecs")
+    ecs_clusters = ecs.list_clusters()
+    services = ecs.list_services(cluster=ecs_clusters["clusterArns"][0])
+    for service in services["serviceArns"]:
+        if "tess" in service:
+            tsadaract_service = service
 
-    rng = np.random.default_rng()
-    true_ne = rng.uniform(0.1, 0.7)
-    true_Te = rng.uniform(0.5, 1.5)
-    true_amp1 = rng.uniform(0.5, 2.5)
-    true_amp2 = rng.uniform(0.5, 2.5)
-    true_lam = rng.uniform(525, 527)
+    # check if the service is running
+    service_status = ecs.describe_services(cluster=ecs_clusters["clusterArns"][0], services=[tsadaract_service])
+    if service_status["services"][0]["desiredCount"] == 0:
+        st.warning("Tesseract service is not running. Please start the service.")
 
-    config["parameters"]["electron"]["ne"]["val"] = true_ne
-    config["parameters"]["electron"]["Te"]["val"] = true_Te
-    config["parameters"]["general"]["amp1"]["val"] = true_amp1
-    config["parameters"]["general"]["amp2"]["val"] = true_amp2
-    config["parameters"]["general"]["lam"]["val"] = true_lam
-    true_ts_params = ThomsonParams(config["parameters"], num_params=1, batch=True, activate=True)
-
-    true_parameters = create_parameter_dict(true_ts_params)
-    true_electron_spectrum = tsadaract.apply(true_parameters)["electron_spectrum"]
-
-    true_fitted_params, _ = true_ts_params.get_fitted_params(config["parameters"])
-
-    with col1:
-        st.write("True parameters:")
-        st.json(clean_dict(true_fitted_params))
-
-    # create an initial guess for the parameters
-    this_rng = np.random.default_rng()
-    init_ne = this_rng.uniform(0.1, 0.7)
-    init_Te = this_rng.uniform(0.5, 1.5)
-    init_amp1 = this_rng.uniform(0.5, 2.5)
-    init_amp2 = this_rng.uniform(0.5, 2.5)
-    init_lam = this_rng.uniform(525, 527)
-
-    config["parameters"]["electron"]["ne"]["val"] = init_ne
-    config["parameters"]["electron"]["Te"]["val"] = init_Te
-    config["parameters"]["general"]["amp1"]["val"] = init_amp1
-    config["parameters"]["general"]["amp2"]["val"] = init_amp2
-    config["parameters"]["general"]["lam"]["val"] = init_lam
-
-    fit_ts_params = ThomsonParams(config["parameters"], num_params=1, batch=True, activate=True)
-    fit_parameters = create_parameter_dict(fit_ts_params)
-    parameters_np = to_numpy(fit_parameters)
-
-    electron_spectrum = tsadaract.apply(fit_parameters)["electron_spectrum"]
-
-    # plot true electron spectrum in a plotly chart in streamlit
-    with col2:
-        st.write("Fitted parameters:")
-        fit_param_holder = st.empty()
-    fig_holder = st.empty()
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(y=true_electron_spectrum, mode="lines+markers", name="True Electron Spectrum"))
-    fig.add_trace(go.Scatter(y=electron_spectrum, mode="lines+markers", name="Fit Electron Spectrum"))
-    fig.update_layout(title="Electron Spectrum", xaxis_title="Wavelength", yaxis_title="Amplitude")
-    fig_holder.plotly_chart(fig)
-
-    learning_rate = st.number_input("Learning Rate", value=0.01, step=0.001, key="learning_rate")
-    opt = optax.adam(learning_rate)
-
-    diff_params, static_params = eqx.partition(
-        fit_ts_params, filter_spec=get_filter_spec(cfg_params=config["parameters"], ts_params=fit_ts_params)
-    )
-    fit_parameters = create_parameter_dict(diff_params)
-    opt_state = opt.init(fit_parameters)
-
-    updated_fitted_parameters = get_fitted_params_for_ui(fit_parameters, diff_params, static_params)
-    fit_param_holder.write("Estimated parameters:")
-    fit_param_holder.json(updated_fitted_parameters)
-
-    if st.button("Fit"):
-
-        for i in (pbar := tqdm.tqdm(range(1000))):
-
-            parameters_np = to_numpy(fit_parameters)
-            electron_spectrum = tsadaract.apply(fit_parameters)["electron_spectrum"]
-            loss, grad_loss = mse(electron_spectrum, true_electron_spectrum), grad_fn(
-                parameters_np, true_electron_spectrum, tsadaract
+        if st.button("Start Service"):
+            ecs.update_service(
+                cluster=ecs_clusters["clusterArns"][0],
+                service=tsadaract_service,
+                desiredCount=1,
             )
+            st.success("Service started. Please wait for the service to be ready.")
 
-            updates, opt_state = opt.update(grad_loss, opt_state)
-            fit_parameters = eqx.apply_updates(fit_parameters, updates)
-            pbar.set_description(f"Loss: {loss:.4f}")
+    elif service_status["services"][0]["desiredCount"] == 1 and service_status["services"][0]["runningCount"] == 0:
+        st.warning("Tesseract service is launching. Please wait")
 
-            fig.data[1].y = electron_spectrum
-            fig.data[1].name = f"Step {i+1}"
-            fig.update_layout(
-                title=f"Electron Spectrum, Loss = {loss:.2e}", xaxis_title="Wavelength", yaxis_title="Amplitude"
+    else:
+        if st.button("Stop Service"):
+            ecs.update_service(
+                cluster=ecs_clusters["clusterArns"][0],
+                service=tsadaract_service,
+                desiredCount=0,
             )
-            fig_holder.plotly_chart(fig)
+            st.success("Service stopped. Please refresh the page.")
 
-            fit_param_holder.write("Estimated parameters:")
-            updated_fitted_parameters = get_fitted_params_for_ui(fit_parameters, diff_params, static_params)
-            fit_param_holder.json(updated_fitted_parameters)
+        tsadaract = Tesseract(url=tesseract_url)
+        # Sample random true parameters
+        col1, col2 = st.columns(2)
+
+        rng = np.random.default_rng()
+        true_ne = rng.uniform(0.1, 0.7)
+        true_Te = rng.uniform(0.5, 1.5)
+        true_amp1 = rng.uniform(0.5, 2.5)
+        true_amp2 = rng.uniform(0.5, 2.5)
+        true_lam = rng.uniform(525, 527)
+
+        config["parameters"]["electron"]["ne"]["val"] = true_ne
+        config["parameters"]["electron"]["Te"]["val"] = true_Te
+        config["parameters"]["general"]["amp1"]["val"] = true_amp1
+        config["parameters"]["general"]["amp2"]["val"] = true_amp2
+        config["parameters"]["general"]["lam"]["val"] = true_lam
+        true_ts_params = ThomsonParams(config["parameters"], num_params=1, batch=True, activate=True)
+
+        true_parameters = create_parameter_dict(true_ts_params)
+        true_electron_spectrum = tsadaract.apply(true_parameters)["electron_spectrum"]
+
+        true_fitted_params, _ = true_ts_params.get_fitted_params(config["parameters"])
+
+        with col1:
+            st.write("True parameters:")
+            st.json(clean_dict(true_fitted_params))
+
+        # create an initial guess for the parameters
+        this_rng = np.random.default_rng()
+        init_ne = this_rng.uniform(0.1, 0.7)
+        init_Te = this_rng.uniform(0.5, 1.5)
+        init_amp1 = this_rng.uniform(0.5, 2.5)
+        init_amp2 = this_rng.uniform(0.5, 2.5)
+        init_lam = this_rng.uniform(525, 527)
+
+        config["parameters"]["electron"]["ne"]["val"] = init_ne
+        config["parameters"]["electron"]["Te"]["val"] = init_Te
+        config["parameters"]["general"]["amp1"]["val"] = init_amp1
+        config["parameters"]["general"]["amp2"]["val"] = init_amp2
+        config["parameters"]["general"]["lam"]["val"] = init_lam
+
+        fit_ts_params = ThomsonParams(config["parameters"], num_params=1, batch=True, activate=True)
+        fit_parameters = create_parameter_dict(fit_ts_params)
+        parameters_np = to_numpy(fit_parameters)
+
+        electron_spectrum = tsadaract.apply(fit_parameters)["electron_spectrum"]
+
+        # plot true electron spectrum in a plotly chart in streamlit
+        with col2:
+            st.write("Fitted parameters:")
+            fit_param_holder = st.empty()
+        fig_holder = st.empty()
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(y=true_electron_spectrum, mode="lines+markers", name="True Electron Spectrum"))
+        fig.add_trace(go.Scatter(y=electron_spectrum, mode="lines+markers", name="Fit Electron Spectrum"))
+        fig.update_layout(title="Electron Spectrum", xaxis_title="Wavelength", yaxis_title="Amplitude")
+        fig_holder.plotly_chart(fig)
+
+        learning_rate = st.number_input("Learning Rate", value=0.01, step=0.001, key="learning_rate")
+        opt = optax.adam(learning_rate)
+
+        diff_params, static_params = eqx.partition(
+            fit_ts_params, filter_spec=get_filter_spec(cfg_params=config["parameters"], ts_params=fit_ts_params)
+        )
+        fit_parameters = create_parameter_dict(diff_params)
+        opt_state = opt.init(fit_parameters)
+
+        updated_fitted_parameters = get_fitted_params_for_ui(fit_parameters, diff_params, static_params)
+        fit_param_holder.write("Estimated parameters:")
+        fit_param_holder.json(updated_fitted_parameters)
+
+        if st.button("Fit"):
+
+            for i in (pbar := tqdm.tqdm(range(1000))):
+
+                parameters_np = to_numpy(fit_parameters)
+                electron_spectrum = tsadaract.apply(fit_parameters)["electron_spectrum"]
+                loss, grad_loss = mse(electron_spectrum, true_electron_spectrum), grad_fn(
+                    parameters_np, true_electron_spectrum, tsadaract
+                )
+
+                updates, opt_state = opt.update(grad_loss, opt_state)
+                fit_parameters = eqx.apply_updates(fit_parameters, updates)
+                pbar.set_description(f"Loss: {loss:.4f}")
+
+                fig.data[1].y = electron_spectrum
+                fig.data[1].name = f"Step {i+1}"
+                fig.update_layout(
+                    title=f"Electron Spectrum, Loss = {loss:.2e}", xaxis_title="Wavelength", yaxis_title="Amplitude"
+                )
+                fig_holder.plotly_chart(fig)
+
+                fit_param_holder.write("Estimated parameters:")
+                updated_fitted_parameters = get_fitted_params_for_ui(fit_parameters, diff_params, static_params)
+                fit_param_holder.json(updated_fitted_parameters)
 
 
 def get_fitted_params_for_ui(fit_parameters, diff_params, static_params):
