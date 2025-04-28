@@ -3,7 +3,7 @@ This is a streamlit app for TSADAR, an open-source Thomson Scattering data analy
 
 To run this app, install the requirements and then run
 
-`python tsadar_app.py`
+`USERNAMES="yourname,othernames" streamlit run tsadar_app.py`
 
 and you should be able to view the app in a browser
 
