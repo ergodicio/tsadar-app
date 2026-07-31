@@ -84,18 +84,20 @@ def _exact_inverse(act_fun):
 
 
 _norm = {}
+_activated = {}
 for _name, _submodule in PARAMS.items():
     _cfg = config["parameters"][_submodule][_name]
     _act_fun, _ = get_act_and_inv_act(_cfg, activate=True)
     _norm[_name] = (_cfg["lb"], _cfg["ub"] - _cfg["lb"], _exact_inverse(_act_fun))
+    _activated[_name] = _act_fun(0.0) != 0.0
 
 
 def to_normed(name: str, physical) -> jnp.ndarray:
     """Map a physical parameter value into the normalized space tsadar expects.
 
     The logit diverges at the bounds and is nan outside them, so a value at or beyond
-    lb/ub yields a non-finite spectrum rather than an error. `check_bounds` guards the
-    apply endpoint against that.
+    lb/ub would yield a non-finite spectrum rather than an error. The bounds declared on
+    `InputSchema` guard every endpoint against that.
     """
     shift, scale, inv_act = _norm[name]
     normed = inv_act((jnp.asarray(physical, dtype=jnp.float64) - shift) / scale)
@@ -104,34 +106,35 @@ def to_normed(name: str, physical) -> jnp.ndarray:
     return normed.reshape(-1, 1)
 
 
-def check_bounds(inputs: "InputSchema") -> None:
-    """Raise if any input maps to a non-finite normalized value.
+def _bounded(name: str, what: str) -> Any:
+    """Declare a parameter's deck bounds on the schema, so they reach clients.
 
-    Tested via `to_normed` itself rather than by comparing against lb/ub, so the guard
-    cannot drift from the transform. Note the bounds are exclusive for an activated
-    parameter -- the logit is +-inf exactly at lb/ub -- but inclusive for one that is
-    not activated, where the transform is the identity.
+    The deck's lb/ub are the single source of truth: they are read out of `_norm`, which
+    is built from the same config entries `to_normed` uses, so the declared bounds cannot
+    drift from the transform. Declaring them here rather than checking them in `apply`
+    also guards the gradient endpoints, which take the same `InputSchema` and would
+    otherwise return nan outside the bounds.
+
+    Bounds are exclusive for an activated parameter -- the logit is +-inf exactly at
+    lb/ub -- and inclusive for one that is not, where the transform is the identity.
+
+    The bounds are repeated in the description because they are emitted as `gt`/`lt`
+    rather than JSON Schema's `exclusiveMinimum`/`exclusiveMaximum` (see
+    `EncodedArrayModel` in tesseract_core.runtime.array_encoding), so schema-driven
+    tooling does not generally pick them up.
     """
-    for name, (lb, span, _) in _norm.items():
-        value = float(np.asarray(getattr(inputs, name)))
-        if not np.all(np.isfinite(np.asarray(to_normed(name, value)))):
-            raise ValueError(
-                f"{name}={value} does not map to a finite normalized value; it must lie "
-                f"within the deck bounds ({lb}, {lb + span})"
-            )
-
-
-def _describe(name: str, what: str) -> str:
     lb, span, _ = _norm[name]
-    return f"{what} (physical units; deck bounds [{lb}, {lb + span}])"
+    ub = lb + span
+    limits = {"gt": lb, "lt": ub} if _activated[name] else {"ge": lb, "le": ub}
+    return Field(description=f"{what} (physical units; deck bounds [{lb}, {ub}])", **limits)
 
 
 class InputSchema(BaseModel):
-    ne: Differentiable[Float64] = Field(description=_describe("ne", "electron density"))
-    Te: Differentiable[Float64] = Field(description=_describe("Te", "electron temperature"))
-    amp1: Differentiable[Float64] = Field(description=_describe("amp1", "amplitude 1"))
-    amp2: Differentiable[Float64] = Field(description=_describe("amp2", "amplitude 2"))
-    lam: Differentiable[Float64] = Field(description=_describe("lam", "central wavelength"))
+    ne: Differentiable[Float64] = _bounded("ne", "electron density")
+    Te: Differentiable[Float64] = _bounded("Te", "electron temperature")
+    amp1: Differentiable[Float64] = _bounded("amp1", "amplitude 1")
+    amp2: Differentiable[Float64] = _bounded("amp2", "amplitude 2")
+    lam: Differentiable[Float64] = _bounded("lam", "central wavelength")
 
 
 class OutputSchema(BaseModel):
@@ -160,7 +163,6 @@ def apply_jit(inputs: dict) -> dict:
 
 
 def apply(inputs: InputSchema) -> OutputSchema:
-    check_bounds(inputs)
     return OutputSchema(**jax_apply(apply_jit, inputs))
 
 
