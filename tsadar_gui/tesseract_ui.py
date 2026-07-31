@@ -1,88 +1,157 @@
-from jax import config as jax_config
-
-
-jax_config.update("jax_enable_x64", True)
-
-import numpy as np
 import boto3
-
-
-import tqdm, optax, equinox as eqx, yaml
+import numpy as np
+import optax
 import plotly.graph_objects as go
+import requests
 import streamlit as st
-
-from tsadar import ThomsonParams
-from tsadar.core.modules.ts_params import get_filter_spec
-
-from flatten_dict import flatten, unflatten
-
+import tqdm
 
 from tesseract_core import Tesseract
 
 
-with open("./tesseract/1d-defaults.yaml", "r") as f:
-    defaults = yaml.safe_load(f)
+PARAMS = ["ne", "Te", "amp1", "amp2", "lam"]
+JAC_OUTPUTS = ["electron_spectrum"]
 
-with open("./tesseract/1d-inputs.yaml", "r") as f:
-    inputs = yaml.safe_load(f)
-
-defaults = flatten(defaults)
-defaults.update(flatten(inputs))
-config = unflatten(defaults)
-
-diff_wrt_to = ["ne", "Te", "amp1", "amp2", "lam"]
-jac_outputs = ["electron_spectrum"]
-
-
-def to_arr(x):
-    """Convert a float to a numpy array."""
-    return np.array(np.array(x, dtype=np.float64)).reshape(-1, 1)
-
-
-def to_numpy(x: dict[str, float]) -> np.ndarray:
-    """Convert the parameter dictionary to a numpy array."""
-    return np.concatenate([[x[k] for k in diff_wrt_to]])
+# Physically realistic OMEGA conditions, used to draw both the synthetic truth and the
+# initial guess. These are deliberately *not* the deck bounds: the bounds are validity
+# limits for the model, so sampling ne from the deck's (0.001, 1.0) would generate test
+# cases no experiment would produce. `check_sampling_ranges` asserts these sit strictly
+# inside the bounds the Tesseract declares, so a deck change cannot silently invalidate
+# them.
+SAMPLING_RANGES = {
+    "ne": (0.1, 0.7),  # 1e20 cm^-3
+    # Te and lam are inset from the deck's [0.001, 1.5] and [525, 527]. Those bounds are
+    # exclusive, and sampling hard against one puts the logit somewhere badly
+    # conditioned even when it does not land on the bound exactly.
+    "Te": (0.5, 1.4),  # keV
+    "amp1": (0.5, 2.5),
+    "amp2": (0.5, 2.5),
+    "lam": (525.2, 526.8),  # nm
+}
 
 
-def to_dict(params: np.ndarray) -> dict:
-    """Convert the numpy array to a parameter dictionary."""
-    return {k: params[i] for i, k in enumerate(diff_wrt_to)}
+@st.cache_data(ttl=3600)
+def fetch_bounds(tesseract_url: str) -> dict[str, tuple[float, float]]:
+    """Read each parameter's deck bounds off the Tesseract's OpenAPI document.
+
+    The bounds live in the tsadar deck and are declared on `InputSchema`, so this is the
+    only place the GUI learns them -- it does not keep its own copy to drift.
+
+    They are read by name rather than as JSON Schema constraints because pydantic puts
+    them on tesseract-core's encoded-array wrapper, which serialises them as `gt`/`lt`
+    (or `ge`/`le`) rather than as `exclusiveMinimum`/`exclusiveMaximum`.
+    """
+    response = requests.get(f"{tesseract_url}/openapi.json", timeout=10)
+    response.raise_for_status()
+    properties = response.json()["components"]["schemas"]["Apply_InputSchema"]["properties"]
+
+    bounds = {}
+    for name in PARAMS:
+        spec = properties[name]
+        lower = spec.get("gt", spec.get("ge"))
+        upper = spec.get("lt", spec.get("le"))
+        if lower is None or upper is None:
+            raise RuntimeError(
+                f"The Tesseract at {tesseract_url} does not declare bounds for {name!r}. "
+                "It predates the InputSchema that declares them; rebuild it."
+            )
+        bounds[name] = (lower, upper)
+    return bounds
+
+
+def check_sampling_ranges(bounds: dict[str, tuple[float, float]]) -> None:
+    """Fail loudly if the deck has moved out from under `SAMPLING_RANGES`."""
+    for name, (low, high) in SAMPLING_RANGES.items():
+        lower, upper = bounds[name]
+        if not lower < low < high < upper:
+            raise RuntimeError(
+                f"The sampling range for {name} {(low, high)} is not strictly inside the "
+                f"deck bounds {(lower, upper)}. Either the deck changed or the range is "
+                "wrong; both need a human."
+            )
+
+
+def sample_parameters(rng: np.random.Generator) -> dict[str, float]:
+    """Draw a physically plausible parameter set."""
+    return {name: float(rng.uniform(*SAMPLING_RANGES[name])) for name in PARAMS}
+
+
+# The Tesseract takes physical parameters and rejects anything outside the deck bounds,
+# so a plain gradient step on them would need projecting back into the box. We optimize
+# in an unconstrained space instead and map through a sigmoid, which keeps every iterate
+# strictly inside the bounds for free and is better conditioned near them. This is the
+# same reparameterization tsadar applies internally; it lives here now because the
+# Tesseract's own interface is physical.
+def to_unconstrained(
+    physical: dict[str, float], bounds: dict[str, tuple[float, float]]
+) -> dict[str, float]:
+    """Map physical parameters onto the whole real line via the logit."""
+    unconstrained = {}
+    for name, value in physical.items():
+        lower, upper = bounds[name]
+        fraction = (value - lower) / (upper - lower)
+        unconstrained[name] = float(np.log(fraction) - np.log1p(-fraction))
+    return unconstrained
+
+
+def to_physical(
+    unconstrained: dict[str, float], bounds: dict[str, tuple[float, float]]
+) -> dict[str, float]:
+    """Inverse of `to_unconstrained`.
+
+    The sigmoid keeps the result inside the bounds mathematically, but it saturates in
+    float64 for |u| above roughly 40, landing on the bound exactly -- which the Tesseract
+    rejects, since the bounds are exclusive. Pin the result one ULP inside so a long fit
+    that drives a parameter hard against a bound degrades instead of erroring.
+    """
+    physical = {}
+    for name, value in unconstrained.items():
+        lower, upper = bounds[name]
+        mapped = lower + (upper - lower) / (1.0 + np.exp(-value))
+        physical[name] = float(np.clip(mapped, np.nextafter(lower, upper), np.nextafter(upper, lower)))
+    return physical
+
+
+def dphysical_dunconstrained(
+    unconstrained: dict[str, float], bounds: dict[str, tuple[float, float]]
+) -> dict[str, float]:
+    """The chain-rule factor `span * sigmoid'(u)` relating the two spaces."""
+    factors = {}
+    for name, value in unconstrained.items():
+        lower, upper = bounds[name]
+        sigmoid = 1.0 / (1.0 + np.exp(-value))
+        factors[name] = (upper - lower) * sigmoid * (1.0 - sigmoid)
+    return factors
 
 
 def mse(pred: np.ndarray, true: np.ndarray) -> float:
     """Mean Squared Error."""
-    mse = np.mean(np.square(pred - true))
-    return mse
+    return float(np.mean(np.square(pred - true)))
 
 
-def grad_fn(parameters: np.ndarray, true_electron_spectrum: np.ndarray, tsadaract: Tesseract) -> np.ndarray:
-    """Compute the gradient of the MSE loss function with respect to the parameters."""
-    # Compute the gradient
+def evaluate(
+    unconstrained: dict[str, float],
+    true_electron_spectrum: np.ndarray,
+    tsadaract: Tesseract,
+    bounds: dict[str, tuple[float, float]],
+) -> tuple[np.ndarray, float, dict[str, float]]:
+    """One step's worth of work: the spectrum, the loss, and dloss/dunconstrained."""
+    physical = to_physical(unconstrained, bounds)
 
-    jacobian = tsadaract.jacobian(to_dict(parameters), diff_wrt_to, jac_outputs)["electron_spectrum"]
+    electron_spectrum = tsadaract.apply(physical)["electron_spectrum"]
+    jacobian = tsadaract.jacobian(physical, PARAMS, JAC_OUTPUTS)["electron_spectrum"]
 
-    # Compute the primal
-    electron_spectrum = tsadaract.apply(to_dict(parameters))["electron_spectrum"]
-
-    # Propagate the gradient through the model by differentiating the mse function
+    # Differentiate the MSE through the model, then through the reparameterization.
     error = electron_spectrum - true_electron_spectrum
-    grad = {}
-    for k in diff_wrt_to:
-        grad[k] = 2 * np.mean(jacobian[k] * error)
+    chain = dphysical_dunconstrained(unconstrained, bounds)
+    grad = {name: 2 * np.mean(jacobian[name] * error) * chain[name] for name in PARAMS}
 
-    return grad  # to_numpy(grad)
+    return electron_spectrum, mse(electron_spectrum, true_electron_spectrum), grad
 
 
-def create_parameter_dict(_ts_params: ThomsonParams) -> dict:
-    """Create a dictionary of parameters from the ThomsonParams object."""
-    parameters = {
-        "ne": _ts_params.electron.normed_ne[0],
-        "Te": _ts_params.electron.normed_Te[0],
-        "amp1": _ts_params.general.normed_amp1[0],
-        "amp2": _ts_params.general.normed_amp2[0],
-        "lam": _ts_params.general.normed_lam[0],
-    }
-    return parameters
+def display(parameters: dict[str, float]) -> dict[str, float]:
+    """Round parameters for display."""
+    return {name: round(float(value), 3) for name, value in parameters.items()}
 
 
 def tesseract_ui(tesseract_url):
@@ -121,57 +190,31 @@ def tesseract_ui(tesseract_url):
             st.success("Service stopped. Please refresh the page.")
 
         tsadaract = Tesseract(url=tesseract_url)
-        # Sample random true parameters
+        bounds = fetch_bounds(tesseract_url)
+        check_sampling_ranges(bounds)
+
         col1, col2 = st.columns(2)
 
+        # Sample the true parameters, and generate the synthetic spectrum to fit to.
         rng = np.random.default_rng()
-        true_ne = rng.uniform(0.1, 0.7)
-        true_Te = rng.uniform(0.5, 1.5)
-        true_amp1 = rng.uniform(0.5, 2.5)
-        true_amp2 = rng.uniform(0.5, 2.5)
-        true_lam = rng.uniform(525, 527)
-
-        config["parameters"]["electron"]["ne"]["val"] = true_ne
-        config["parameters"]["electron"]["Te"]["val"] = true_Te
-        config["parameters"]["general"]["amp1"]["val"] = true_amp1
-        config["parameters"]["general"]["amp2"]["val"] = true_amp2
-        config["parameters"]["general"]["lam"]["val"] = true_lam
-        true_ts_params = ThomsonParams(config["parameters"], num_params=1, batch=True, activate=True)
-
-        true_parameters = create_parameter_dict(true_ts_params)
+        true_parameters = sample_parameters(rng)
         true_electron_spectrum = tsadaract.apply(true_parameters)["electron_spectrum"]
-
-        true_fitted_params, _ = true_ts_params.get_fitted_params(config["parameters"])
 
         with col1:
             st.write("True parameters:")
-            st.json(clean_dict(true_fitted_params))
+            st.json(display(true_parameters))
 
-        # create an initial guess for the parameters
-        this_rng = np.random.default_rng()
-        init_ne = this_rng.uniform(0.1, 0.7)
-        init_Te = this_rng.uniform(0.5, 1.5)
-        init_amp1 = this_rng.uniform(0.5, 2.5)
-        init_amp2 = this_rng.uniform(0.5, 2.5)
-        init_lam = this_rng.uniform(525, 527)
-
-        config["parameters"]["electron"]["ne"]["val"] = init_ne
-        config["parameters"]["electron"]["Te"]["val"] = init_Te
-        config["parameters"]["general"]["amp1"]["val"] = init_amp1
-        config["parameters"]["general"]["amp2"]["val"] = init_amp2
-        config["parameters"]["general"]["lam"]["val"] = init_lam
-
-        fit_ts_params = ThomsonParams(config["parameters"], num_params=1, batch=True, activate=True)
-        fit_parameters = create_parameter_dict(fit_ts_params)
-        parameters_np = to_numpy(fit_parameters)
-
+        # Create an independent initial guess.
+        fit_parameters = sample_parameters(rng)
+        unconstrained = to_unconstrained(fit_parameters, bounds)
         electron_spectrum = tsadaract.apply(fit_parameters)["electron_spectrum"]
 
-        # plot true electron spectrum in a plotly chart in streamlit
         with col2:
-            st.write("Fitted parameters:")
+            st.write("Estimated parameters:")
             fit_param_holder = st.empty()
         fig_holder = st.empty()
+
+        fit_param_holder.json(display(fit_parameters))
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(y=true_electron_spectrum, mode="lines+markers", name="True Electron Spectrum"))
@@ -181,29 +224,16 @@ def tesseract_ui(tesseract_url):
 
         learning_rate = st.number_input("Learning Rate", value=0.01, step=0.001, key="learning_rate")
         opt = optax.adam(learning_rate)
-
-        diff_params, static_params = eqx.partition(
-            fit_ts_params, filter_spec=get_filter_spec(cfg_params=config["parameters"], ts_params=fit_ts_params)
-        )
-        fit_parameters = create_parameter_dict(diff_params)
-        opt_state = opt.init(fit_parameters)
-
-        updated_fitted_parameters = get_fitted_params_for_ui(fit_parameters, diff_params, static_params)
-        fit_param_holder.write("Estimated parameters:")
-        fit_param_holder.json(updated_fitted_parameters)
+        opt_state = opt.init(unconstrained)
 
         if st.button("Fit"):
 
             for i in (pbar := tqdm.tqdm(range(1000))):
 
-                parameters_np = to_numpy(fit_parameters)
-                electron_spectrum = tsadaract.apply(fit_parameters)["electron_spectrum"]
-                loss, grad_loss = mse(electron_spectrum, true_electron_spectrum), grad_fn(
-                    parameters_np, true_electron_spectrum, tsadaract
-                )
+                electron_spectrum, loss, grad_loss = evaluate(unconstrained, true_electron_spectrum, tsadaract, bounds)
 
                 updates, opt_state = opt.update(grad_loss, opt_state)
-                fit_parameters = eqx.apply_updates(fit_parameters, updates)
+                unconstrained = optax.apply_updates(unconstrained, updates)
                 pbar.set_description(f"Loss: {loss:.4f}")
 
                 fig.data[1].y = electron_spectrum
@@ -213,27 +243,4 @@ def tesseract_ui(tesseract_url):
                 )
                 fig_holder.plotly_chart(fig)
 
-                fit_param_holder.write("Estimated parameters:")
-                updated_fitted_parameters = get_fitted_params_for_ui(fit_parameters, diff_params, static_params)
-                fit_param_holder.json(updated_fitted_parameters)
-
-
-def get_fitted_params_for_ui(fit_parameters, diff_params, static_params):
-    diff_params = eqx.tree_at(lambda x: x.electron.normed_ne, diff_params, to_arr(fit_parameters["ne"]))
-    diff_params = eqx.tree_at(lambda x: x.electron.normed_Te, diff_params, to_arr(fit_parameters["Te"]))
-    diff_params = eqx.tree_at(lambda x: x.general.normed_amp1, diff_params, to_arr(fit_parameters["amp1"]))
-    diff_params = eqx.tree_at(lambda x: x.general.normed_amp2, diff_params, to_arr(fit_parameters["amp2"]))
-    diff_params = eqx.tree_at(lambda x: x.general.normed_lam, diff_params, to_arr(fit_parameters["lam"]))
-    fit_ts_params = eqx.combine(diff_params, static_params)
-    updated_fitted_parameters, _ = fit_ts_params.get_fitted_params(config["parameters"])
-    updated_fitted_parameters = clean_dict(updated_fitted_parameters)
-    return updated_fitted_parameters
-
-
-def clean_dict(d: dict) -> dict:
-    for k, v in d.items():
-        if isinstance(v, dict):
-            d[k] = clean_dict(v)
-        else:
-            d[k] = round(float(np.squeeze(v)), 2)
-    return d
+                fit_param_holder.json(display(to_physical(unconstrained, bounds)))
