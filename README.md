@@ -3,10 +3,14 @@
 This repository holds the user-facing pieces of TSADAR, an open-source Thomson
 Scattering data analysis package:
 
-- **`tsadar_browser/`** — the analysis browser and visualizer: a read-only
-  FastAPI layer over the MLflow tracking server, with a React SPA to follow.
-  See [docs/browser.md](docs/browser.md) and the tracking issue
-  [#37](https://github.com/ergodicio/tsadar-app/issues/37).
+- **`tsadar_browser/`** — backend for the analysis browser and visualizer: a
+  read-only FastAPI layer over the MLflow tracking server. See
+  [docs/browser.md](docs/browser.md).
+- **`frontend/`** — the browser itself: a Vite + React + TypeScript SPA whose API
+  client is generated from the backend's OpenAPI schema. See
+  [frontend/README.md](frontend/README.md).
+
+  Tracking issue: [#37](https://github.com/ergodicio/tsadar-app/issues/37).
 - **`tsadar_app.py` / `tsadar_gui/`** — the older Streamlit app (below). Note its
   job-submission path targets retired infrastructure and the app is no longer
   deployed; see [#35](https://github.com/ergodicio/tsadar-app/issues/35).

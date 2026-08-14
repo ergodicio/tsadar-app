@@ -10,6 +10,8 @@ venv/
 .env
 .tsadar-browser-cache/
 
-# Frontend build output (arrives with #31)
-node_modules/
-dist/
+
+# Frontend build output and test caches
+frontend/dist/
+frontend/node_modules/
+frontend/coverage/
