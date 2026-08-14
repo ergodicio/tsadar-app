@@ -17,10 +17,11 @@
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.13.0",
-    "plotly.js-dist-min": "^3.0.1",
+    "plotly.js-cartesian-dist-min": "^3.7.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-router-dom": "^7.6.0"
+    "react-router-dom": "^7.6.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",

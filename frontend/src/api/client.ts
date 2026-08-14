@@ -19,6 +19,20 @@ export type RunPage = Json<"/api/runs", "get">;
 export type RunSummary = RunPage["runs"][number];
 export type RunDetail = Json<"/api/runs/{run_id}", "get">;
 export type Health = Json<"/api/health", "get">;
+export type ArtifactEntry = RunDetail["artifacts"][number];
+export type MetricHistory = Json<"/api/runs/{run_id}/metrics/{key}", "get">;
+
+export type DatasetAvailability = Json<"/api/runs/{run_id}/datasets", "get">;
+export type SpectrumInfo = DatasetAvailability["spectra"][number];
+export type Spectrogram = Json<"/api/runs/{run_id}/spectrogram", "get">;
+export type Lineout = Json<"/api/runs/{run_id}/lineout", "get">;
+export type Profiles = Json<"/api/runs/{run_id}/profiles", "get">;
+export type ProfileSeries = Profiles["series"][number];
+
+/** Spectrogram fields the backend can serve. `residual` is derived as data - fit;
+ *  `irf` is deliberately absent because it is not in the netCDF datasets. */
+export const SPECTROGRAM_FIELDS = ["data", "fit", "residual"] as const;
+export type SpectrogramField = (typeof SPECTROGRAM_FIELDS)[number];
 
 /** Sort keys the backend accepts. Duration is deliberately absent: it is computed
  *  from timestamps and MLflow cannot order by it, so offering it would 400. */
@@ -107,6 +121,17 @@ export function runQueryParams(query: RunQuery): URLSearchParams {
   return params;
 }
 
+/** URL for an artifact, served through the API so the browser never touches S3.
+ *
+ *  Each path segment is encoded separately: the slashes are real path structure
+ *  (`plots/fit_and_data.png`), so encoding the whole thing would break it. */
+export function artifactUrl(runId: string, artifactPath: string): string {
+  const segments = artifactPath.split("/").map(encodeURIComponent).join("/");
+  return `/api/runs/${encodeURIComponent(runId)}/artifacts/${segments}`;
+}
+
+const runPath = (runId: string, suffix = "") => `/api/runs/${encodeURIComponent(runId)}${suffix}`;
+
 export const api = {
   health: (signal?: AbortSignal) => request<Health>("/api/health", undefined, signal),
 
@@ -119,5 +144,39 @@ export const api = {
     request<RunPage>("/api/runs", runQueryParams(query), signal),
 
   run: (runId: string, signal?: AbortSignal) =>
-    request<RunDetail>(`/api/runs/${encodeURIComponent(runId)}`, undefined, signal),
+    request<RunDetail>(runPath(runId), undefined, signal),
+
+  /** Metric keys contain spaces ("overall loss"), so they must be encoded. */
+  metricHistory: (runId: string, key: string, signal?: AbortSignal) =>
+    request<MetricHistory>(runPath(runId, `/metrics/${encodeURIComponent(key)}`), undefined, signal),
+
+  datasets: (runId: string, signal?: AbortSignal) =>
+    request<DatasetAvailability>(runPath(runId, "/datasets"), undefined, signal),
+
+  spectrogram: (
+    runId: string,
+    options: { which: string; field: SpectrogramField; maxPx?: number },
+    signal?: AbortSignal,
+  ) => {
+    const params = new URLSearchParams({ which: options.which, field: options.field });
+    if (options.maxPx) params.set("max_px", String(options.maxPx));
+    return request<Spectrogram>(runPath(runId, "/spectrogram"), params, signal);
+  },
+
+  lineout: (runId: string, options: { which: string; index: number }, signal?: AbortSignal) =>
+    request<Lineout>(
+      runPath(runId, "/lineout"),
+      new URLSearchParams({ which: options.which, index: String(options.index) }),
+      signal,
+    ),
+
+  profiles: (runId: string, signal?: AbortSignal) =>
+    request<Profiles>(runPath(runId, "/profiles"), undefined, signal),
+
+  /** Fetch an artifact as text, for the YAML config files. */
+  artifactText: async (runId: string, artifactPath: string, signal?: AbortSignal) => {
+    const response = await fetch(artifactUrl(runId, artifactPath), { signal });
+    if (!response.ok) throw new ApiError(response.status, `could not fetch ${artifactPath}`);
+    return response.text();
+  },
 };
