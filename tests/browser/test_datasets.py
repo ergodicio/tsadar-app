@@ -419,3 +419,109 @@ class TestWireFormat:
         assert result[0] == 0.0
         assert result[1] == pytest.approx(-1234.57)
         assert result[2] == pytest.approx(1e-30)
+
+
+class TestReviewRegressions:
+    """Cases from the review on #40."""
+
+    def test_declared_error_schema_matches_the_wire_body(self, dataset_client, angular_run):
+        """The generated client reads the schema, so a flat declaration lies.
+
+        FastAPI nests whatever an HTTPException carries under `detail`, so a
+        consumer trusting a flat schema would read err.reason and get undefined
+        on exactly the angular-vs-missing distinction these endpoints exist for.
+        """
+        response = dataset_client.get(f"/api/runs/{angular_run}/spectrogram")
+        assert response.status_code == 409
+        body = response.json()
+
+        schema = dataset_client.get("/api/openapi.json").json()
+        ref = schema["paths"]["/api/runs/{run_id}/spectrogram"]["get"]["responses"]["409"]["content"][
+            "application/json"
+        ]["schema"]["$ref"]
+        declared = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]
+
+        # Declared shape must be the envelope, not its contents.
+        assert list(declared["properties"]) == ["detail"]
+        inner_ref = declared["properties"]["detail"]["$ref"].rsplit("/", 1)[-1]
+        inner = schema["components"]["schemas"][inner_ref]
+        assert set(inner["properties"]) == {"reason", "detail"}
+
+        # And the wire body must actually match it.
+        assert set(body) == {"detail"}
+        assert set(body["detail"]) == {"reason", "detail"}
+        assert body["detail"]["reason"] == "angular_not_supported"
+
+    def test_serving_paths_list_only_the_binary_directory(self, fake_client, dataset_client, tmp_path):
+        """Classification must not walk the whole artifact tree per request.
+
+        A real run has binary/, csv/, plots/, lineouts/, best/ and worst/, and the
+        lineout scrubber steps interactively -- paying a round trip per directory
+        on every step before reading any data.
+        """
+        from .fixtures import learned_parameters_csv
+
+        install_artifacts(
+            fake_client,
+            "run-abc",
+            {
+                "binary/ele_fit_and_data.nc": write_spectrum(tmp_path / "e", "ele_fit_and_data.nc"),
+                "csv/learned_parameters.csv": learned_parameters_csv(),
+                "plots/a.png": b"x",
+                "lineouts/a.png": b"x",
+                "best/a.png": b"x",
+                "worst/a.png": b"x",
+            },
+        )
+
+        original = fake_client.list_artifacts
+        listed: list[str] = []
+
+        def counting(run_id, path=""):
+            listed.append(path)
+            return original(run_id, path)
+
+        fake_client.list_artifacts = counting
+
+        for endpoint in ("spectrogram", "lineout?index=0", "lineout?index=1"):
+            listed.clear()
+            assert dataset_client.get(f"/api/runs/run-abc/{endpoint}").status_code == 200
+            assert listed == ["binary"], f"{endpoint} walked {listed} instead of just binary/"
+
+    def test_describe_still_reports_profiles_and_sigmas(self, dataset_client, one_d_run):
+        """The narrower listing must not cost /datasets its fuller answer."""
+        body = dataset_client.get(f"/api/runs/{one_d_run}/datasets").json()
+        assert body["profiles_available"] is True
+        assert body["sigmas_available"] is True
+
+    def test_axis_column_is_matched_by_name_not_position(self, dataset_service):
+        """A parameter carrying a unit must not be mistaken for the lineout axis."""
+        import pandas as pd
+
+        frame = pd.DataFrame(
+            {
+                # Deliberately ahead of the real axis, which is what the
+                # positional heuristic alone would fall for.
+                "Te_electron (keV)": np.linspace(5.0, 1.0, 6),
+                TEMPORAL_AXIS: np.linspace(-100.0, 100.0, 6),
+                "ne_electron": np.linspace(0.1, 0.3, 6),
+            }
+        )
+        assert dataset_service._profile_axis_column(frame, TEMPORAL_AXIS) == TEMPORAL_AXIS
+
+    def test_axis_column_falls_back_to_a_monotonic_candidate(self, dataset_service):
+        """With no hint, prefer monotonicity: a lineout axis always is."""
+        import pandas as pd
+
+        frame = pd.DataFrame(
+            {
+                "Te_electron (keV)": np.array([5.0, 1.0, 4.0, 2.0, 3.0, 0.5]),
+                TEMPORAL_AXIS: np.linspace(-100.0, 100.0, 6),
+            }
+        )
+        assert dataset_service._profile_axis_column(frame, None) == TEMPORAL_AXIS
+
+    def test_profiles_uses_the_dataset_axis_name(self, dataset_client, one_d_run):
+        body = dataset_client.get(f"/api/runs/{one_d_run}/profiles").json()
+        assert body["x_label"] == TEMPORAL_AXIS
+        assert TEMPORAL_AXIS not in {series["name"] for series in body["series"]}

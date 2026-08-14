@@ -232,9 +232,18 @@ When a run can't be served, `supported` is false and `reason` is a code, not
 prose: `angular_not_supported`, `dataset_missing`, `dataset_unreadable`,
 `unexpected_schema`, `field_unavailable`, `index_out_of_range`. The distinction
 matters — showing "no data found" for an angular run reads as a bug when the
-truth is that the view is deliberately out of scope. The data endpoints use the
-same codes in their error bodies, with **409** for recognized-but-unsupported
-(angular) and **404** for genuinely absent.
+truth is that the view is deliberately out of scope.
+
+The data endpoints carry the same codes in their **error** bodies, with **409**
+for recognized-but-unsupported (angular) and **404** for genuinely absent. Note
+the shape: FastAPI wraps anything an `HTTPException` carries under `detail`, so
+the reason is one level down and the declared schema mirrors that nesting.
+
+```json
+{ "detail": { "reason": "angular_not_supported", "detail": "This is an angularly-resolved run. …" } }
+```
+
+Read it as `err.detail.reason`, not `err.reason`.
 
 ### What the datasets actually contain
 
@@ -251,8 +260,20 @@ Less than [#30] assumed, so two things are worth stating plainly:
 `sigmas.nc` lives at the artifact **root**, not under `binary/` — `calc_sigmas`
 is off by default, so absence is normal rather than an error. In
 `learned_parameters.csv`, `to_csv` writes the DataFrame index as a leading
-unnamed column, and the lineout axis column is identified by its parenthesized
-units (`Time (ps)`) since parameter columns are `<param>_<species>`.
+unnamed column, and the lineout axis column is matched **by name** against the
+dataset's own axis label. The "first column with parenthesized units" heuristic
+is only a fallback: it is positional, and safe today purely because
+`get_final_params` inserts the axis ahead of the parameters, so a fitted
+parameter that ever acquired a unit in its name would otherwise be mistaken for
+the axis. Among parenthesized fallback candidates a monotonic one wins, since a
+lineout axis always is and a parameter generally is not.
+
+Classification lists only `binary/` rather than walking the whole artifact tree.
+A real run has `binary/`, `csv/`, `plots/`, `lineouts/`, `best/` and `worst/`, and
+each directory is an MLflow round trip; the lineout scrubber steps
+interactively, so a full walk would be paid before every step. `/datasets` still
+takes the full listing, because it reports on profiles and sigmas too — but it is
+called once per page load rather than once per interaction.
 
 ### Downsampling
 

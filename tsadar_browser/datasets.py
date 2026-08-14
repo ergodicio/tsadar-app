@@ -156,13 +156,26 @@ class DatasetService:
     def _artifact_paths(self, run_id: str) -> set[str]:
         return {entry.path for entry in self.gateway.list_artifacts(run_id) if not entry.is_dir}
 
+    def _binary_paths(self, run_id: str) -> set[str]:
+        """List only ``binary/``, which is all that determines the dataset kind.
+
+        Walking the whole artifact tree costs one MLflow round trip per directory
+        (``binary/``, ``csv/``, ``plots/``, ``lineouts/``, ``best/``, ``worst/``)
+        before a single byte of data is read. The lineout scrubber steps through
+        lineouts interactively, so that walk would be paid on every step.
+        """
+        return {entry.path for entry in self.gateway.list_artifacts(run_id, "binary") if not entry.is_dir}
+
     def classify(self, run_id: str, paths: set[str] | None = None) -> tuple[DatasetKind, list[str]]:
         """Return the run's dataset kind and which 1D spectra it has.
 
         Artifact shape is the authority here, not the logged ``spectype`` param --
         that is written before the fit runs and can disagree with reality.
+
+        Pass ``paths`` when a full artifact listing is already in hand (as
+        :meth:`describe` has); otherwise only ``binary/`` is listed.
         """
-        paths = self._artifact_paths(run_id) if paths is None else paths
+        paths = self._binary_paths(run_id) if paths is None else paths
 
         present = [which for which, path in ONE_D_DATASETS.items() if path in paths]
         if present:
@@ -423,7 +436,10 @@ class DatasetService:
     # -- profiles -------------------------------------------------------------
 
     def profiles(self, run_id: str) -> Profiles:
-        self._require_one_d(run_id)
+        present = self._require_one_d(run_id)
+        # Ask the dataset what its lineout axis is called, so the CSV column can
+        # be matched by name instead of guessed from column order.
+        axis_hint = self._axis_hint(run_id, present)
 
         try:
             local = self.gateway.download_artifact(run_id, LEARNED_PARAMS_CSV)
@@ -448,7 +464,7 @@ class DatasetService:
         if LINEOUT_PIXEL_COLUMN in frame.columns:
             lineout_pixels = [int(value) for value in frame.pop(LINEOUT_PIXEL_COLUMN).to_numpy()]
 
-        x_label = self._profile_axis_column(frame)
+        x_label = self._profile_axis_column(frame, axis_hint)
         if x_label is None:
             # Angular runs skip the axis insert entirely, so there is nothing to
             # plot profiles against. _require_one_d should have caught it already.
@@ -477,15 +493,42 @@ class DatasetService:
             sigmas_available=bool(sigmas),
         )
 
+    def _axis_hint(self, run_id: str, present: list[str]) -> str | None:
+        """The lineout axis name according to the netCDF, when one is readable."""
+        for which in present:
+            try:
+                with self._open(run_id, which) as dataset:
+                    return self._axes(dataset)[0]
+            except DatasetUnavailable:
+                continue
+        return None
+
     @staticmethod
-    def _profile_axis_column(frame: pd.DataFrame) -> str | None:
+    def _profile_axis_column(frame: pd.DataFrame, axis_hint: str | None = None) -> str | None:
         """Find the lineout-axis column among the parameter columns.
 
-        Axis labels carry units in parentheses (``Time (ps)``, ``Radius (\\mum)``)
-        while parameter columns are ``<param>_<species>``, so the parenthesis is
-        the discriminator.
+        Prefers an exact match against the dataset's own axis name. Falling back
+        to "first column containing a parenthesis" is positional and only safe
+        because ``get_final_params`` inserts the axis ahead of the parameters: a
+        fitted parameter that ever acquired a unit in its name would otherwise be
+        mistaken for the axis and popped out of the series. Among parenthesized
+        candidates, prefer a monotonic one, since a lineout axis always is and a
+        parameter generally is not.
         """
-        return next((str(column) for column in frame.columns if "(" in str(column)), None)
+        columns = [str(column) for column in frame.columns]
+
+        if axis_hint and axis_hint in columns:
+            return axis_hint
+
+        candidates = [column for column in columns if "(" in column]
+        if not candidates:
+            return None
+
+        for column in candidates:
+            values = pd.to_numeric(frame[column], errors="coerce").to_numpy()
+            if np.all(np.diff(values) > 0) or np.all(np.diff(values) < 0):
+                return column
+        return candidates[0]
 
     def _read_sigmas(self, run_id: str) -> dict[str, np.ndarray]:
         """Read per-parameter uncertainties, if the run computed any.
@@ -506,8 +549,11 @@ class DatasetService:
 
     # -- guards ---------------------------------------------------------------
 
-    def _require_one_d(self, run_id: str) -> None:
-        """Refuse angular and pre-contract runs before touching any dataset."""
+    def _require_one_d(self, run_id: str) -> list[str]:
+        """Refuse angular and pre-contract runs before touching any dataset.
+
+        Returns the available 1D spectra so callers do not have to classify twice.
+        """
         kind, present = self.classify(run_id)
 
         if kind is DatasetKind.angular:
@@ -524,6 +570,7 @@ class DatasetService:
                 UnavailableReason.dataset_missing,
                 "This run has no readable fit/data datasets; use the plot gallery instead.",
             )
+        return present
 
 
 def local_dataset_path(gateway: MlflowGateway, run_id: str, which: str) -> Path:  # pragma: no cover

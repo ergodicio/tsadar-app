@@ -166,11 +166,24 @@ class UnavailableReason(str, Enum):
     index_out_of_range = "index_out_of_range"
 
 
-class DatasetUnavailableResponse(BaseModel):
-    """Error body for the dataset endpoints, carrying a reason code."""
+class DatasetUnavailableBody(BaseModel):
+    """The reason payload itself."""
 
     reason: UnavailableReason
     detail: str
+
+
+class DatasetUnavailableResponse(BaseModel):
+    """Error body for the dataset endpoints, carrying a reason code.
+
+    Nested under ``detail`` because that is what actually goes over the wire:
+    FastAPI wraps whatever an ``HTTPException`` carries in a ``detail`` key. A
+    flat declaration would make the generated client read ``err.reason`` and get
+    ``undefined`` on exactly the angular-vs-missing distinction these endpoints
+    exist to make legible.
+    """
+
+    detail: DatasetUnavailableBody
 
 
 class SpectrumInfo(BaseModel):
