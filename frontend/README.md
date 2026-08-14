@@ -1,8 +1,8 @@
 # Thomson analysis browser — frontend
 
 A Vite + React + TypeScript SPA over the read layer in `tsadar_browser/`
-([#29]). This covers the scaffold and run browser ([#31]) and the run detail view
-([#32]); the compare view is [#33].
+([#29]): the scaffold and run browser ([#31]), the run detail view ([#32]) and the
+multi-run compare view ([#33]).
 
 ## Running it
 
@@ -116,6 +116,40 @@ from logged params by the backend, is always available either way.
 run has images the slicing API cannot reproduce: the distribution-function
 contours, the error histogram, and the lineout plots that *do* include IRF and
 noise components — which the netCDF datasets do not carry.
+
+## The compare view
+
+`/compare?runs=a,b,c` fully encodes the comparison so it can be pasted into Slack,
+which also means the run ids are arbitrary user input rather than a selection made
+in the run browser — every incompatibility has to be handled in the view.
+
+The hard part is not plotting; it is knowing when a comparison would be
+meaningless:
+
+- **Angular runs are excluded from the overlays, with a reason.** Their x axis is
+  scattering angle, so putting one on the same axis as `Time (ps)` is not a
+  degraded comparison but a meaningless one. Excluded-and-why, never silently
+  dropped: a run missing from a legend with no explanation looks like a bug.
+- **The config diff is the exception and stays inclusive.** Flattened key →
+  per-run values doesn't care about axis semantics, so an angular run's config is
+  still perfectly comparable and appears in that table even though its profiles
+  cannot be overlaid.
+- **Mixing spatial and temporal 1D runs is the same problem, milder.** Both are
+  1D, but `Radius (μm)` and `Time (ps)` still aren't the same axis. Those are
+  plotted with a warning, since a deliberate comparison is imaginable and the axis
+  label alone wouldn't flag it.
+- **Runs legitimately differ in which parameters they fitted.** An ele-only run has
+  no ion parameters, so the union of series is taken and each panel says how many
+  runs contributed. Dropping a parameter because one run lacks it would hide data
+  the others do have.
+- **Loss metrics differ between runs.** The summary table names each run's
+  `loss_key` and warns when the column mixes metrics; the curve panel offers the
+  union of keys and names the runs that didn't log the selected one.
+- **A key absent from one run is distinct from a differing value**, and the diff
+  says `absent` rather than leaving a blank cell.
+
+One run failing to load doesn't fail the page: the others are still compared and
+the failure is reported.
 
 ## Testing notes
 

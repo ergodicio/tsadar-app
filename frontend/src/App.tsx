@@ -1,10 +1,8 @@
-/**
- * Routes. `/compare` stays a placeholder so the URL contract the run browser
- * links into is fixed; the view itself lands with #33.
- */
+/** Routes. */
 
 import { Link, Navigate, Route, Routes } from "react-router-dom";
 
+import { Compare } from "./routes/Compare";
 import { RunBrowser } from "./routes/RunBrowser";
 import { RunDetail } from "./routes/RunDetail";
 
@@ -27,15 +25,7 @@ export function App() {
         <Route path="/" element={<Navigate to="/runs" replace />} />
         <Route path="/runs" element={<RunBrowser />} />
         <Route path="/runs/:runId" element={<RunDetail />} />
-        <Route
-          path="/compare"
-          element={
-            <Placeholder
-              title="Compare runs"
-              detail="The multi-run compare view arrives with issue #33."
-            />
-          }
-        />
+        <Route path="/compare" element={<Compare />} />
         <Route
           path="*"
           element={<Placeholder title="Not found" detail="That page does not exist." />}
