@@ -533,3 +533,76 @@ body {
 .filelist__size {
   color: var(--muted);
 }
+
+/* -- compare -- */
+
+.comparetable__scroll {
+  overflow-x: auto;
+}
+
+.comparetable {
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  min-width: 100%;
+}
+
+.comparetable th,
+.comparetable td {
+  text-align: left;
+  padding: 0.3rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.comparetable thead th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.comparetable tbody th {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.comparetable__remove {
+  margin-left: 0.35rem;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.comparetable__remove:hover {
+  color: var(--danger);
+}
+
+.comparetable__losskey,
+.comparetable__stage {
+  color: var(--muted);
+}
+
+.comparetable__row--varies th[scope="row"] {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.comparetable__absent {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.compare__excluded {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
