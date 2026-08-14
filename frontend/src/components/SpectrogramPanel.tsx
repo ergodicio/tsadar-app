@@ -10,7 +10,7 @@
  * `unavailable_fields` and the gallery still has the images.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   ApiError,
@@ -83,42 +83,55 @@ export function SpectrogramPanel({
     return () => controller.abort();
   }, [runId, which, field]);
 
-  const traces = spectrogram
-    ? [
-        {
-          type: "heatmap",
-          x: spectrogram.x,
-          y: spectrogram.y,
-          z: spectrogram.values,
-          // Residual is signed, so it reads far better on a diverging scale
-          // centred at zero than on a sequential one.
-          colorscale: field === "residual" ? "RdBu" : "Viridis",
-          zmid: field === "residual" ? 0 : undefined,
-          colorbar: { title: field },
-        },
-      ]
-    : [];
+  // Memoized because `Plot` re-plots when these change by identity. Without it,
+  // dragging the lineout scrubber -- which re-renders this component on every
+  // pointer move -- would hand Plotly a brand new heatmap trace each time and
+  // redraw the whole array. The traces do not depend on `lineoutIndex` at all;
+  // only the marker in the layout does.
+  const traces = useMemo(
+    () =>
+      spectrogram
+        ? [
+            {
+              type: "heatmap",
+              x: spectrogram.x,
+              y: spectrogram.y,
+              z: spectrogram.values,
+              // Residual is signed, so it reads far better on a diverging scale
+              // centred at zero than on a sequential one.
+              colorscale: field === "residual" ? "RdBu" : "Viridis",
+              zmid: field === "residual" ? 0 : undefined,
+              colorbar: { title: field },
+            },
+          ]
+        : [],
+    [spectrogram, field],
+  );
 
-  const layout = spectrogram
-    ? {
-        xaxis: { title: axisLabel(spectrogram.x_label) },
-        yaxis: { title: axisLabel(spectrogram.y_label) },
-        margin: { t: 10, r: 10, b: 45, l: 60 },
-        shapes: [
-          // The selected lineout, drawn as a vertical rule so the scrubber and
-          // the heatmap always agree about where you are.
-          {
-            type: "line",
-            x0: spectrogram.x[lineoutIndex] ?? null,
-            x1: spectrogram.x[lineoutIndex] ?? null,
-            yref: "paper",
-            y0: 0,
-            y1: 1,
-            line: { color: "#ff7f0e", width: 1.5, dash: "dot" },
-          },
-        ],
-      }
-    : {};
+  const layout = useMemo(
+    () =>
+      spectrogram
+        ? {
+            xaxis: { title: axisLabel(spectrogram.x_label) },
+            yaxis: { title: axisLabel(spectrogram.y_label) },
+            margin: { t: 10, r: 10, b: 45, l: 60 },
+            shapes: [
+              // The selected lineout, drawn as a vertical rule so the scrubber
+              // and the heatmap always agree about where you are.
+              {
+                type: "line",
+                x0: spectrogram.x[lineoutIndex] ?? null,
+                x1: spectrogram.x[lineoutIndex] ?? null,
+                yref: "paper",
+                y0: 0,
+                y1: 1,
+                line: { color: "#ff7f0e", width: 1.5, dash: "dot" },
+              },
+            ],
+          }
+        : {},
+    [spectrogram, lineoutIndex],
+  );
 
   return (
     <section className="panel" aria-labelledby="spectrogram-heading">

@@ -6,7 +6,7 @@
  * `best/` and `worst/` PNGs with something you can step through.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { ApiError, api, type Lineout, type SpectrumInfo } from "../api/client";
 import { axisLabel } from "../lib/format";
@@ -48,32 +48,44 @@ export function LineoutPanel({ runId, spectrum, which, index, onIndexChange }: L
     return () => controller.abort();
   }, [runId, which, clamped]);
 
-  const traces = lineout
-    ? [
-        { type: "scatter", mode: "lines", name: "Data", x: lineout.wavelength, y: lineout.data },
-        { type: "scatter", mode: "lines", name: "Fit", x: lineout.wavelength, y: lineout.fit },
-        {
-          type: "scatter",
-          mode: "lines",
-          name: "Residual",
-          x: lineout.wavelength,
-          y: lineout.residual,
-          yaxis: "y2",
-          line: { width: 1, dash: "dot" },
-        },
-      ]
-    : [];
+  // Memoized so `Plot` only re-plots when the fetched lineout actually changes.
+  // Dragging the scrubber re-renders this component far faster than the request
+  // it fires can return, and each of those renders would otherwise rebuild the
+  // traces by identity and trigger a redraw of the previous lineout.
+  const traces = useMemo(
+    () =>
+      lineout
+        ? [
+            { type: "scatter", mode: "lines", name: "Data", x: lineout.wavelength, y: lineout.data },
+            { type: "scatter", mode: "lines", name: "Fit", x: lineout.wavelength, y: lineout.fit },
+            {
+              type: "scatter",
+              mode: "lines",
+              name: "Residual",
+              x: lineout.wavelength,
+              y: lineout.residual,
+              yaxis: "y2",
+              line: { width: 1, dash: "dot" },
+            },
+          ]
+        : [],
+    [lineout],
+  );
 
-  const layout = lineout
-    ? {
-        xaxis: { title: axisLabel(lineout.y_label) },
-        yaxis: { title: "Amplitude (arb.)", domain: [0.32, 1] },
-        yaxis2: { title: "Residual", domain: [0, 0.24] },
-        showlegend: true,
-        legend: { orientation: "h", y: 1.12 },
-        margin: { t: 30, r: 20, b: 45, l: 60 },
-      }
-    : {};
+  const layout = useMemo(
+    () =>
+      lineout
+        ? {
+            xaxis: { title: axisLabel(lineout.y_label) },
+            yaxis: { title: "Amplitude (arb.)", domain: [0.32, 1] },
+            yaxis2: { title: "Residual", domain: [0, 0.24] },
+            showlegend: true,
+            legend: { orientation: "h", y: 1.12 },
+            margin: { t: 30, r: 20, b: 45, l: 60 },
+          }
+        : {},
+    [lineout],
+  );
 
   return (
     <section className="panel" aria-labelledby="lineout-heading">

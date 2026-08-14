@@ -30,19 +30,31 @@ export function Plot({ data, layout, onPointClick, height = 320, ariaLabel }: Pl
   const clickHandler = useRef(onPointClick);
   clickHandler.current = onPointClick;
 
+  // Updates and teardown are separate effects on purpose. Purging on every
+  // `data`/`layout` change threw the graph away and rebuilt it from scratch --
+  // losing the user's zoom and pan, and forcing a full redraw where
+  // `Plotly.react` would have diffed. Worse, `Plotly.react` is async: a purge
+  // firing while one was in flight could leave an empty div behind.
+  //
+  // Declaration order matters. React runs cleanups in the order the effects
+  // were declared, so this one's cleanup marks the in-flight update stale
+  // *before* the teardown effect below purges, and nothing can render into an
+  // already-purged element.
   useEffect(() => {
     const element = container.current;
     if (!element) return;
 
-    let disposed = false;
+    let stale = false;
 
     void (async () => {
       const Plotly = await import("plotly.js-cartesian-dist-min");
-      if (disposed) return;
+      if (stale) return;
 
       const plot = await Plotly.react(element, data, { autosize: true, height, ...layout }, CONFIG);
-      if (disposed) return;
+      if (stale) return;
 
+      // `react` reuses the graph div, so a listener from the previous render is
+      // still attached and would fire twice.
       plot.removeAllListeners?.("plotly_click");
       plot.on("plotly_click", (event) => {
         const point = event.points[0];
@@ -52,10 +64,18 @@ export function Plot({ data, layout, onPointClick, height = 320, ariaLabel }: Pl
     })();
 
     return () => {
-      disposed = true;
-      void import("plotly.js-cartesian-dist-min").then((Plotly) => Plotly.purge(element));
+      stale = true;
     };
   }, [data, layout, height]);
+
+  useEffect(() => {
+    const element = container.current;
+    if (!element) return;
+
+    return () => {
+      void import("plotly.js-cartesian-dist-min").then((Plotly) => Plotly.purge(element));
+    };
+  }, []);
 
   return <div ref={container} role="img" aria-label={ariaLabel} className="plot" />;
 }
