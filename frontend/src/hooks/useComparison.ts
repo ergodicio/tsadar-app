@@ -6,7 +6,7 @@
  * still compare the other three, and say what happened to the fourth.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { ApiError, api, type Profiles } from "../api/client";
 import { exclusionReason, type ComparisonRun } from "../lib/compare";
@@ -28,11 +28,26 @@ async function loadRun(runId: string, signal: AbortSignal): Promise<ComparisonRu
   // Profiles are the overlay's substance, but their absence is not fatal -- the
   // run still contributes to the summary table and the config diff.
   let profiles: Profiles | null = null;
+  let profilesError: string | null = null;
   if (availability.supported && availability.profiles_available) {
-    profiles = await api.profiles(runId, signal).catch(() => null);
+    profiles = await api.profiles(runId, signal).catch((cause: unknown) => {
+      // An abort is not "this run has no profiles" -- it means the comparison
+      // moved on while the request was in flight. Swallowing it would resolve
+      // this run with a wrong exclusion reason, and the caller discards aborted
+      // results anyway, so it is rethrown rather than recorded.
+      if (signal.aborted) throw cause;
+      profilesError = cause instanceof ApiError ? cause.message : "the request failed";
+      return null;
+    });
   }
 
-  return { runId, detail, availability, profiles, excluded: exclusionReason(availability, profiles) };
+  return {
+    runId,
+    detail,
+    availability,
+    profiles,
+    excluded: exclusionReason(availability, profiles, profilesError),
+  };
 }
 
 export function useComparison(runIds: string[]): ComparisonState {
@@ -40,6 +55,10 @@ export function useComparison(runIds: string[]): ComparisonState {
   const [failures, setFailures] = useState<Array<{ runId: string; message: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [reloadCount, setReloadCount] = useState(0);
+
+  // Stable across renders so a consumer can pass it to a memoized child (the
+  // retry button's `onRetry`) without defeating the memo.
+  const reload = useCallback(() => setReloadCount((count) => count + 1), []);
 
   const key = runIds.join(",");
 
@@ -84,5 +103,5 @@ export function useComparison(runIds: string[]): ComparisonState {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, reloadCount]);
 
-  return { runs, failures, loading, reload: () => setReloadCount((count) => count + 1) };
+  return { runs, failures, loading, reload };
 }

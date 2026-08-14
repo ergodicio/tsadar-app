@@ -12,6 +12,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Compare } from "../routes/Compare";
+import { MAX_COMPARE_RUNS } from "../lib/compare";
 import { angularAvailability, availability, metricHistory, profiles, runDetail } from "./fixtures";
 
 const plotCalls: Array<{ data: unknown[]; layout?: Record<string, unknown>; ariaLabel?: string }> = [];
@@ -218,6 +219,59 @@ describe("angular runs are excluded, not reconciled", () => {
     renderCompare("/compare?runs=ang");
     await waitFor(() => expect(screen.getByText("Not included in the overlays:")).toBeInTheDocument());
     expect(requested.some((url) => url.includes("/profiles"))).toBe(false);
+  });
+
+  it("says a run logged no profiles when the probe reports none", async () => {
+    stubRuns({ a: {}, none: { probe: availability({ profiles_available: false }) } });
+    renderCompare("/compare?runs=a,none");
+
+    await waitFor(() => expect(screen.getByText("Not included in the overlays:")).toBeInTheDocument());
+    expect(screen.getByText(/No fitted-parameter profiles logged/i)).toBeInTheDocument();
+  });
+
+  it("distinguishes a failed profiles request from a run with no profiles", async () => {
+    // The probe said profiles exist and the request still failed, so this is a
+    // retryable error rather than a property of the run. Reporting it as "no
+    // profiles logged" would send someone looking at their input deck instead.
+    stubRuns({ a: {}, broken: { profiles: null } });
+    renderCompare("/compare?runs=a,broken");
+
+    await waitFor(() => expect(screen.getByText("Not included in the overlays:")).toBeInTheDocument());
+    const notice = screen.getByText("Not included in the overlays:").closest("div")!;
+    expect(within(notice).getByText(/Could not load this run's parameter profiles/i)).toBeInTheDocument();
+    expect(within(notice).getByText(/run not found/)).toBeInTheDocument();
+    expect(within(notice).queryByText(/No fitted-parameter profiles logged/i)).not.toBeInTheDocument();
+
+    // The other run still overlays, and the config diff still covers both.
+    expect(screen.getByText("1 of 2 runs overlaid")).toBeInTheDocument();
+  });
+});
+
+describe("run cap", () => {
+  it("loads at most MAX_COMPARE_RUNS and says what it dropped", async () => {
+    const ids = Array.from({ length: MAX_COMPARE_RUNS + 4 }, (_, index) => `r${index}`);
+    stubRuns(Object.fromEntries(ids.map((id) => [id, {}])));
+    renderCompare(`/compare?runs=${ids.join(",")}`);
+
+    await waitFor(() =>
+      expect(screen.getByText(`Comparing ${MAX_COMPARE_RUNS} runs`)).toBeInTheDocument(),
+    );
+
+    expect(screen.getByText(new RegExp(`asked for ${MAX_COMPARE_RUNS + 4} runs`))).toBeInTheDocument();
+
+    // The cap has to bound the requests, not just the rendering: the four runs
+    // past the limit are never fetched at all.
+    for (const dropped of ids.slice(MAX_COMPARE_RUNS)) {
+      expect(requested.some((url) => url.includes(`/api/runs/${dropped}`))).toBe(false);
+    }
+  });
+
+  it("shows no cap notice when the URL is within the limit", async () => {
+    stubRuns({ a: {}, b: {} });
+    renderCompare("/compare?runs=a,b");
+
+    await waitFor(() => expect(screen.getByText("Comparing 2 runs")).toBeInTheDocument());
+    expect(screen.queryByText(/asked for/)).not.toBeInTheDocument();
   });
 });
 

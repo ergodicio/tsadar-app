@@ -5,6 +5,7 @@ import {
   comparableRuns,
   diffAcrossRuns,
   exclusionReason,
+  MAX_COMPARE_RUNS,
   mixedAxisWarning,
   parseRunIds,
   runLabel,
@@ -29,17 +30,39 @@ function comparisonRun(overrides: Partial<ComparisonRun> & { runId: string }): C
 
 describe("parseRunIds", () => {
   it("splits the URL parameter and preserves order", () => {
-    expect(parseRunIds("a,b,c")).toEqual(["a", "b", "c"]);
+    expect(parseRunIds("a,b,c")).toEqual({ ids: ["a", "b", "c"], requested: 3 });
   });
 
   it("drops blanks, whitespace and duplicates", () => {
     // Arbitrary user input: /compare?runs= can be hand-edited.
-    expect(parseRunIds("a, ,b,,a, b ")).toEqual(["a", "b"]);
+    expect(parseRunIds("a, ,b,,a, b ")).toEqual({ ids: ["a", "b"], requested: 2 });
   });
 
   it("handles an absent parameter", () => {
-    expect(parseRunIds(null)).toEqual([]);
-    expect(parseRunIds("")).toEqual([]);
+    expect(parseRunIds(null)).toEqual({ ids: [], requested: 0 });
+    expect(parseRunIds("")).toEqual({ ids: [], requested: 0 });
+  });
+
+  it("caps the comparison and reports what the URL asked for", () => {
+    // A hand-edited URL would otherwise fan out to three requests per run, all
+    // concurrent, with no upper bound.
+    const many = Array.from({ length: MAX_COMPARE_RUNS + 7 }, (_, index) => `run-${index}`);
+    const parsed = parseRunIds(many.join(","));
+
+    expect(parsed.ids).toHaveLength(MAX_COMPARE_RUNS);
+    expect(parsed.requested).toBe(MAX_COMPARE_RUNS + 7);
+    // The first N, not an arbitrary N, so the URL determines which runs you see.
+    expect(parsed.ids).toEqual(many.slice(0, MAX_COMPARE_RUNS));
+  });
+
+  it("counts distinct ids, not commas, when deciding it truncated", () => {
+    // Ten ids repeated is still ten runs, so nothing was dropped and the page
+    // should not claim otherwise.
+    const ten = Array.from({ length: MAX_COMPARE_RUNS }, (_, index) => `run-${index}`);
+    const parsed = parseRunIds([...ten, ...ten].join(","));
+
+    expect(parsed.requested).toBe(MAX_COMPARE_RUNS);
+    expect(parsed.ids).toHaveLength(MAX_COMPARE_RUNS);
   });
 });
 
@@ -66,6 +89,16 @@ describe("exclusionReason", () => {
 
   it("includes a normal 1D run", () => {
     expect(exclusionReason(availability() as never, profiles() as never)).toBeNull();
+  });
+
+  it("distinguishes a failed profiles request from a run with no profiles", () => {
+    // Both leave `profiles` null, but only one is worth retrying, and telling
+    // someone their run has no fitted parameters when the server errored sends
+    // them looking in the wrong place.
+    const reason = exclusionReason(availability() as never, null, "request failed (500)");
+    expect(reason).toMatch(/could not load/i);
+    expect(reason).toMatch(/request failed \(500\)/);
+    expect(reason).not.toMatch(/no fitted-parameter profiles/i);
   });
 });
 

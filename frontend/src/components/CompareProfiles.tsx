@@ -7,6 +7,8 @@
  * parameter because one run lacks it would hide data the others do have.
  */
 
+import { memo, useMemo } from "react";
+
 import { Plot } from "./Plot";
 import { axisLabel } from "../lib/format";
 import {
@@ -19,10 +21,53 @@ import {
 } from "../lib/compare";
 import { splitSeriesName } from "./ProfilesPanel";
 
-export function CompareProfiles({ runs }: { runs: ComparisonRun[] }) {
-  const comparable = comparableRuns(runs);
-  const names = sharedSeriesNames(runs);
-  const labels = axisLabels(runs);
+function CompareProfilesImpl({ runs }: { runs: ComparisonRun[] }) {
+  const comparable = useMemo(() => comparableRuns(runs), [runs]);
+
+  // One memo for every panel rather than one per panel: `Plot` re-plots when the
+  // arrays it is handed change by identity, and this component renders N panels
+  // from the same `runs`. Building them inline meant any render of this
+  // component -- a parent state change, a removed run -- rebuilt every trace and
+  // every layout for every parameter, and redrew the lot.
+  const panels = useMemo(() => {
+    const labels = axisLabels(runs);
+    const xTitle = labels.map(axisLabel).join(" / ");
+
+    return sharedSeriesNames(runs).map((name) => {
+      const contributors = runsWithSeries(runs, name);
+      const { parameter, species } = splitSeriesName(name);
+
+      return {
+        name,
+        contributors: contributors.length,
+        traces: contributors.map((run) => {
+          const series = run.profiles!.series.find((candidate) => candidate.name === name)!;
+          return {
+            type: "scatter",
+            mode: "lines+markers",
+            name: runLabel(run),
+            x: run.profiles!.x,
+            y: series.values,
+            error_y: series.sigma
+              ? { type: "data", array: series.sigma, visible: true, thickness: 1 }
+              : undefined,
+          };
+        }),
+        layout: {
+          title: {
+            text: species ? `${parameter} (${species})` : parameter,
+            font: { size: 13 },
+          },
+          // With more than one axis label in play the axis title would be a lie,
+          // so it names both rather than picking one.
+          xaxis: { title: xTitle },
+          margin: { t: 30, r: 12, b: 40, l: 52 },
+          showlegend: contributors.length > 1,
+          legend: { orientation: "h", y: -0.25 },
+        },
+      };
+    });
+  }, [runs]);
 
   if (comparable.length === 0) {
     return (
@@ -46,52 +91,26 @@ export function CompareProfiles({ runs }: { runs: ComparisonRun[] }) {
       </header>
 
       <div className="profiles__grid">
-        {names.map((name) => {
-          const contributors = runsWithSeries(runs, name);
-          const { parameter, species } = splitSeriesName(name);
-
-          const traces = contributors.map((run) => {
-            const series = run.profiles!.series.find((candidate) => candidate.name === name)!;
-            return {
-              type: "scatter",
-              mode: "lines+markers",
-              name: runLabel(run),
-              x: run.profiles!.x,
-              y: series.values,
-              error_y: series.sigma
-                ? { type: "data", array: series.sigma, visible: true, thickness: 1 }
-                : undefined,
-            };
-          });
-
-          return (
-            <div key={name} className="profiles__cell">
-              <Plot
-                data={traces}
-                layout={{
-                  title: {
-                    text: species ? `${parameter} (${species})` : parameter,
-                    font: { size: 13 },
-                  },
-                  // With more than one axis label in play the axis title would be
-                  // a lie, so it names both rather than picking one.
-                  xaxis: { title: labels.map(axisLabel).join(" / ") },
-                  margin: { t: 30, r: 12, b: 40, l: 52 },
-                  showlegend: contributors.length > 1,
-                  legend: { orientation: "h", y: -0.25 },
-                }}
-                height={240}
-                ariaLabel={`${name} across runs`}
-              />
-              {contributors.length < comparable.length && (
-                <p className="panel__note">
-                  {contributors.length} of {comparable.length} runs fitted this parameter.
-                </p>
-              )}
-            </div>
-          );
-        })}
+        {panels.map((panel) => (
+          <div key={panel.name} className="profiles__cell">
+            <Plot
+              data={panel.traces}
+              layout={panel.layout}
+              height={240}
+              ariaLabel={`${panel.name} across runs`}
+            />
+            {panel.contributors < comparable.length && (
+              <p className="panel__note">
+                {panel.contributors} of {comparable.length} runs fitted this parameter.
+              </p>
+            )}
+          </div>
+        ))}
       </div>
     </section>
   );
 }
+
+/** Memoized because `runs` only changes when the comparison reloads, while this
+ *  component's parent re-renders on every URL change. */
+export const CompareProfiles = memo(CompareProfilesImpl);

@@ -16,11 +16,11 @@ import { CompareProfiles } from "../components/CompareProfiles";
 import { CompareSummary } from "../components/CompareSummary";
 import { ErrorState, LoadingState } from "../components/StateViews";
 import { useComparison } from "../hooks/useComparison";
-import { mixedAxisWarning, parseRunIds, runLabel } from "../lib/compare";
+import { MAX_COMPARE_RUNS, mixedAxisWarning, parseRunIds, runLabel } from "../lib/compare";
 
 export function Compare() {
   const [search, setSearch] = useSearchParams();
-  const runIds = useMemo(() => parseRunIds(search.get("runs")), [search]);
+  const { ids: runIds, requested } = useMemo(() => parseRunIds(search.get("runs")), [search]);
 
   const { runs, failures, loading, reload } = useComparison(runIds);
 
@@ -78,6 +78,16 @@ export function Compare() {
           <h1>Comparing {runs.length} runs</h1>
         </div>
       </header>
+
+      {requested > runIds.length && (
+        // Said out loud rather than truncated silently: someone who pasted 30 run
+        // ids needs to know which ones they are looking at.
+        <p className="panel__status panel__status--notice" role="status">
+          The URL asked for {requested} runs. Showing the first {runIds.length} — a comparison is
+          capped at {MAX_COMPARE_RUNS} runs, beyond which trace colours repeat and the overlay stops
+          distinguishing them.
+        </p>
+      )}
 
       {failures.length > 0 && (
         <p className="panel__status panel__status--error" role="alert">

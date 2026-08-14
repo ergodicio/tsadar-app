@@ -29,13 +29,25 @@ export interface ComparisonRun {
   excluded: string | null;
 }
 
-/** Decide whether a run can be overlaid, and say why not when it cannot. */
-export function exclusionReason(availability: DatasetAvailability, profiles: Profiles | null): string | null {
+/** Decide whether a run can be overlaid, and say why not when it cannot.
+ *
+ *  `profilesError` distinguishes "this run logged no profiles" from "the profiles
+ *  request failed". Both leave `profiles` null and both exclude the run, but only
+ *  one of them is worth retrying, and telling a user their run has no fitted
+ *  parameters when the server merely 500'd sends them looking in the wrong place. */
+export function exclusionReason(
+  availability: DatasetAvailability,
+  profiles: Profiles | null,
+  profilesError: string | null = null,
+): string | null {
   if (availability.kind === "angular") {
     return "Angular run: its x axis is scattering angle, so it cannot share an axis with 1D runs. Its config still appears in the diff.";
   }
   if (!availability.supported) {
     return availability.message ?? "No readable datasets for this run.";
+  }
+  if (profilesError) {
+    return `Could not load this run's parameter profiles: ${profilesError}`;
   }
   if (!profiles) {
     return "No fitted-parameter profiles logged for this run.";
@@ -109,21 +121,38 @@ export function diffAcrossRuns(runs: ComparisonRun[]): MultiConfigRow[] {
   });
 }
 
+/** How many runs a single comparison will load.
+ *
+ *  Chosen from what the overlay can actually express, not from a load estimate:
+ *  Plotly's default colorway has ten entries, so an eleventh trace reuses the
+ *  first colour and two runs become indistinguishable in the legend. It also
+ *  bounds the fan-out -- every run costs up to three requests, all issued
+ *  concurrently -- so a hand-edited URL cannot turn one page load into hundreds
+ *  of them. */
+export const MAX_COMPARE_RUNS = 10;
+
+export interface ParsedRunIds {
+  /** The ids to load: distinct, in URL order, at most `MAX_COMPARE_RUNS`. */
+  ids: string[];
+  /** How many distinct ids the URL asked for, which may exceed `ids.length`. */
+  requested: number;
+}
+
 /** Parse the `runs` query parameter, dropping blanks and duplicates.
  *
- *  Order is preserved so trace colours stay stable for a given URL. */
-export function parseRunIds(raw: string | null): string[] {
-  if (!raw) return [];
+ *  Order is preserved so trace colours stay stable for a given URL, and the cap
+ *  is applied here rather than at the call site so no caller can forget it. The
+ *  requested count is returned alongside so the page can say what it dropped
+ *  instead of silently truncating. */
+export function parseRunIds(raw: string | null): ParsedRunIds {
+  if (!raw) return { ids: [], requested: 0 };
   const seen = new Set<string>();
-  const ids: string[] = [];
   for (const candidate of raw.split(",")) {
     const id = candidate.trim();
-    if (id && !seen.has(id)) {
-      seen.add(id);
-      ids.push(id);
-    }
+    if (id) seen.add(id);
   }
-  return ids;
+  const ids = [...seen];
+  return { ids: ids.slice(0, MAX_COMPARE_RUNS), requested: ids.length };
 }
 
 /** A short label for a run in legends and table headers. */

@@ -6,6 +6,7 @@
  * `min loss` would invite exactly the wrong conclusion from a comparison.
  */
 
+import { memo, useMemo } from "react";
 import { Link } from "react-router-dom";
 
 import { formatDuration, formatLoss, formatTimestamp, spectypeLabel } from "../lib/format";
@@ -16,9 +17,12 @@ interface CompareSummaryProps {
   onRemove: (runId: string) => void;
 }
 
-export function CompareSummary({ runs, onRemove }: CompareSummaryProps) {
-  const lossKeys = new Set(runs.map((run) => run.detail.loss_key).filter(Boolean));
-  const mixedLossMetrics = lossKeys.size > 1;
+function CompareSummaryImpl({ runs, onRemove }: CompareSummaryProps) {
+  const lossKeys = useMemo(
+    () => [...new Set(runs.map((run) => run.detail.loss_key).filter(Boolean))],
+    [runs],
+  );
+  const mixedLossMetrics = lossKeys.length > 1;
 
   return (
     <section className="panel" aria-labelledby="summary-heading">
@@ -104,10 +108,14 @@ export function CompareSummary({ runs, onRemove }: CompareSummaryProps) {
 
       {mixedLossMetrics && (
         <p className="panel__note">
-          These runs report <strong>different loss metrics</strong> ({[...lossKeys].join(", ")}), so
-          the final-loss row is not directly comparable across all of them.
+          These runs report <strong>different loss metrics</strong> ({lossKeys.join(", ")}), so the
+          final-loss row is not directly comparable across all of them.
         </p>
       )}
     </section>
   );
 }
+
+/** `onRemove` is stable (the route memoizes it), so this only re-renders when the
+ *  comparison itself changes rather than on every parent render. */
+export const CompareSummary = memo(CompareSummaryImpl);
