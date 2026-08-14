@@ -1,0 +1,3 @@
+-r requirements-browser.txt
+pytest
+httpx

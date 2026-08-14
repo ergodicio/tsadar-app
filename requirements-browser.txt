@@ -1,0 +1,14 @@
+# Backend for the Thomson analysis browser (tsadar_browser).
+#
+# Deliberately separate from requirements.txt: the Streamlit app pins
+# tsadar@v0.1.2 and pulls in JAX, none of which the read-only browser needs.
+# The full mlflow package (not mlflow-skinny) is required for the S3 artifact
+# repository used to fetch artifacts from s3://public-ergodic-continuum.
+fastapi
+uvicorn[standard]
+pydantic>=2
+pydantic-settings>=2
+mlflow
+boto3
+flatten_dict
+PyYAML

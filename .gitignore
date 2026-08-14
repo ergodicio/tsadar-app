@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local configuration and the artifact cache default location
+.env
+.tsadar-browser-cache/
+
+# Frontend build output (arrives with #31)
+node_modules/
+dist/
