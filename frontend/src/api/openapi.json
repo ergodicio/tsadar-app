@@ -1,0 +1,2000 @@
+{
+  "components": {
+    "schemas": {
+      "ArtifactEntry": {
+        "properties": {
+          "is_dir": {
+            "title": "Is Dir",
+            "type": "boolean"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size"
+          }
+        },
+        "required": [
+          "path",
+          "is_dir"
+        ],
+        "title": "ArtifactEntry",
+        "type": "object"
+      },
+      "CacheStats": {
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "directory": {
+            "title": "Directory",
+            "type": "string"
+          },
+          "entries": {
+            "title": "Entries",
+            "type": "integer"
+          },
+          "max_bytes": {
+            "title": "Max Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "directory",
+          "entries",
+          "bytes",
+          "max_bytes"
+        ],
+        "title": "CacheStats",
+        "type": "object"
+      },
+      "DatasetAvailability": {
+        "description": "What the interactive views can render for a run, and why not when they can't.\n\nThe run detail view calls this first to choose a layout, so it answers for\nevery run -- including angular and pre-contract ones -- instead of erroring.",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/DatasetKind"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable explanation, safe to show",
+            "title": "Message"
+          },
+          "profiles_available": {
+            "default": false,
+            "title": "Profiles Available",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UnavailableReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sigmas_available": {
+            "default": false,
+            "description": "Whether uncertainties exist; calc_sigmas is off by default",
+            "title": "Sigmas Available",
+            "type": "boolean"
+          },
+          "spectra": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/SpectrumInfo"
+            },
+            "title": "Spectra",
+            "type": "array"
+          },
+          "supported": {
+            "description": "True when at least one spectrum can be served",
+            "title": "Supported",
+            "type": "boolean"
+          },
+          "unavailable_fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Fields a client might expect but which cannot be served, mapped to why",
+            "title": "Unavailable Fields",
+            "type": "object"
+          }
+        },
+        "required": [
+          "kind",
+          "supported"
+        ],
+        "title": "DatasetAvailability",
+        "type": "object"
+      },
+      "DatasetKind": {
+        "description": "What kind of Thomson run the artifacts say this is.",
+        "enum": [
+          "one_d",
+          "angular",
+          "unknown"
+        ],
+        "title": "DatasetKind",
+        "type": "string"
+      },
+      "DatasetUnavailableBody": {
+        "description": "The reason payload itself.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/UnavailableReason"
+          }
+        },
+        "required": [
+          "reason",
+          "detail"
+        ],
+        "title": "DatasetUnavailableBody",
+        "type": "object"
+      },
+      "DatasetUnavailableResponse": {
+        "description": "Error body for the dataset endpoints, carrying a reason code.\n\nNested under ``detail`` because that is what actually goes over the wire:\nFastAPI wraps whatever an ``HTTPException`` carries in a ``detail`` key. A\nflat declaration would make the generated client read ``err.reason`` and get\n``undefined`` on exactly the angular-vs-missing distinction these endpoints\nexist to make legible.",
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/DatasetUnavailableBody"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "DatasetUnavailableResponse",
+        "type": "object"
+      },
+      "Experiment": {
+        "properties": {
+          "artifact_location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Location"
+          },
+          "creation_time": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Unix epoch milliseconds",
+            "title": "Creation Time"
+          },
+          "experiment_id": {
+            "title": "Experiment Id",
+            "type": "string"
+          },
+          "last_update_time": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Unix epoch milliseconds",
+            "title": "Last Update Time"
+          },
+          "lifecycle_stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifecycle Stage"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tags": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "title": "Tags",
+            "type": "object"
+          }
+        },
+        "required": [
+          "experiment_id",
+          "name"
+        ],
+        "title": "Experiment",
+        "type": "object"
+      },
+      "ExperimentList": {
+        "properties": {
+          "experiments": {
+            "items": {
+              "$ref": "#/components/schemas/Experiment"
+            },
+            "title": "Experiments",
+            "type": "array"
+          }
+        },
+        "required": [
+          "experiments"
+        ],
+        "title": "ExperimentList",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "properties": {
+          "cache": {
+            "$ref": "#/components/schemas/CacheStats"
+          },
+          "mlflow_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the tracking server could not be reached",
+            "title": "Mlflow Error"
+          },
+          "mlflow_reachable": {
+            "title": "Mlflow Reachable",
+            "type": "boolean"
+          },
+          "mlflow_tracking_uri": {
+            "title": "Mlflow Tracking Uri",
+            "type": "string"
+          },
+          "status": {
+            "description": "'ok' when MLflow is reachable, 'degraded' otherwise",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "mlflow_tracking_uri",
+          "mlflow_reachable",
+          "cache"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "Lineout": {
+        "properties": {
+          "components": {
+            "additionalProperties": {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "description": "Always empty today; see components_unavailable",
+            "title": "Components",
+            "type": "object"
+          },
+          "components_unavailable": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why IRF/noise components are absent, when they are",
+            "title": "Components Unavailable"
+          },
+          "data": {
+            "description": "Measured spectrum",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "fit": {
+            "description": "Fitted spectrum",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Fit",
+            "type": "array"
+          },
+          "index": {
+            "description": "Resolved lineout index; negative inputs are normalized",
+            "title": "Index",
+            "type": "integer"
+          },
+          "lineout_count": {
+            "title": "Lineout Count",
+            "type": "integer"
+          },
+          "residual": {
+            "description": "Derived as data - fit",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Residual",
+            "type": "array"
+          },
+          "wavelength": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Wavelength",
+            "type": "array"
+          },
+          "which": {
+            "title": "Which",
+            "type": "string"
+          },
+          "x_label": {
+            "title": "X Label",
+            "type": "string"
+          },
+          "x_value": {
+            "description": "Position of this lineout on the lineout axis",
+            "title": "X Value",
+            "type": "number"
+          },
+          "y_label": {
+            "title": "Y Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "which",
+          "index",
+          "lineout_count",
+          "x_label",
+          "x_value",
+          "y_label",
+          "wavelength",
+          "data",
+          "fit",
+          "residual"
+        ],
+        "title": "Lineout",
+        "type": "object"
+      },
+      "MetricHistory": {
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/MetricPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "points"
+        ],
+        "title": "MetricHistory",
+        "type": "object"
+      },
+      "MetricPoint": {
+        "properties": {
+          "step": {
+            "title": "Step",
+            "type": "integer"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timestamp"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "step",
+          "value"
+        ],
+        "title": "MetricPoint",
+        "type": "object"
+      },
+      "MetricSummary": {
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timestamp"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ],
+        "title": "MetricSummary",
+        "type": "object"
+      },
+      "ProfileSeries": {
+        "properties": {
+          "name": {
+            "description": "Column name from learned_parameters.csv, e.g. 'Te_electron'",
+            "title": "Name",
+            "type": "string"
+          },
+          "sigma": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per-point uncertainty when the run computed sigmas",
+            "title": "Sigma"
+          },
+          "values": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "values"
+        ],
+        "title": "ProfileSeries",
+        "type": "object"
+      },
+      "Profiles": {
+        "properties": {
+          "lineout_pixels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Detector pixel index per lineout, when logged",
+            "title": "Lineout Pixels"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileSeries"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "sigmas_available": {
+            "title": "Sigmas Available",
+            "type": "boolean"
+          },
+          "x": {
+            "description": "Lineout axis coordinates",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "X",
+            "type": "array"
+          },
+          "x_label": {
+            "title": "X Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "x_label",
+          "x",
+          "series",
+          "sigmas_available"
+        ],
+        "title": "Profiles",
+        "type": "object"
+      },
+      "RunDetail": {
+        "properties": {
+          "artifact_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Uri"
+          },
+          "artifacts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ArtifactEntry"
+            },
+            "title": "Artifacts",
+            "type": "array"
+          },
+          "config": {
+            "additionalProperties": true,
+            "description": "Logged params unflattened back into the nested config tree",
+            "title": "Config",
+            "type": "object"
+          },
+          "config_flat": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The raw flattened params exactly as MLflow stores them",
+            "title": "Config Flat",
+            "type": "object"
+          },
+          "config_unflatten_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when params could not be unflattened (colliding dotted keys); config falls back to empty",
+            "title": "Config Unflatten Error"
+          },
+          "duration_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Computed from start/end time; null while running",
+            "title": "Duration S"
+          },
+          "end_time": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Unix epoch milliseconds",
+            "title": "End Time"
+          },
+          "experiment_id": {
+            "title": "Experiment Id",
+            "type": "string"
+          },
+          "experiment_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Experiment Name"
+          },
+          "final_loss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Loss"
+          },
+          "loss_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which metric final_loss was read from",
+            "title": "Loss Key"
+          },
+          "manifest": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parsed manifest.json when the run logged one (ergodicio/tsadar#116)",
+            "title": "Manifest"
+          },
+          "metrics": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/MetricSummary"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "mlflow_run_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deep link to this run in the MLflow UI",
+            "title": "Mlflow Run Url"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "run_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Name"
+          },
+          "shot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shot number, from the data.shotnum param",
+            "title": "Shot"
+          },
+          "spectype": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Spectrum type as logged ('temporal', 'imaging', 'angular', 'angular_full'). A HINT, NOT GROUND TRUTH: log_mlflow runs before fitter.fit, and loadData overwrites spectype from the data file during prepare, so a deck saying 'temporal' run against angular data logs 'temporal'. Confirm from artifact shape (binary/fit_and_data.nc is angular; ele_/ion_fit_and_data.nc is 1D) before rendering anything axis-dependent.",
+            "title": "Spectype"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "tsadar's own progress tag ('preprocessing', 'minimizing', ... 'completed'), when logged",
+            "title": "Stage"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Unix epoch milliseconds",
+            "title": "Start Time"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "MLflow lifecycle status: RUNNING/FINISHED/FAILED/KILLED",
+            "title": "Status"
+          },
+          "tags": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "title": "Tags",
+            "type": "object"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User"
+          }
+        },
+        "required": [
+          "run_id",
+          "experiment_id"
+        ],
+        "title": "RunDetail",
+        "type": "object"
+      },
+      "RunPage": {
+        "properties": {
+          "next_page_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque cursor for the next page. MLflow paginates by token, not offset; null means last page.",
+            "title": "Next Page Token"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/RunSummary"
+            },
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "runs",
+          "page_size"
+        ],
+        "title": "RunPage",
+        "type": "object"
+      },
+      "RunSummary": {
+        "description": "One row of the run browser table.",
+        "properties": {
+          "duration_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Computed from start/end time; null while running",
+            "title": "Duration S"
+          },
+          "end_time": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Unix epoch milliseconds",
+            "title": "End Time"
+          },
+          "experiment_id": {
+            "title": "Experiment Id",
+            "type": "string"
+          },
+          "experiment_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Experiment Name"
+          },
+          "final_loss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Loss"
+          },
+          "loss_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which metric final_loss was read from",
+            "title": "Loss Key"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "run_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Name"
+          },
+          "shot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shot number, from the data.shotnum param",
+            "title": "Shot"
+          },
+          "spectype": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Spectrum type as logged ('temporal', 'imaging', 'angular', 'angular_full'). A HINT, NOT GROUND TRUTH: log_mlflow runs before fitter.fit, and loadData overwrites spectype from the data file during prepare, so a deck saying 'temporal' run against angular data logs 'temporal'. Confirm from artifact shape (binary/fit_and_data.nc is angular; ele_/ion_fit_and_data.nc is 1D) before rendering anything axis-dependent.",
+            "title": "Spectype"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "tsadar's own progress tag ('preprocessing', 'minimizing', ... 'completed'), when logged",
+            "title": "Stage"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Unix epoch milliseconds",
+            "title": "Start Time"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "MLflow lifecycle status: RUNNING/FINISHED/FAILED/KILLED",
+            "title": "Status"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User"
+          }
+        },
+        "required": [
+          "run_id",
+          "experiment_id"
+        ],
+        "title": "RunSummary",
+        "type": "object"
+      },
+      "Spectrogram": {
+        "properties": {
+          "downsample_factors": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Block-averaging factors applied per axis. The lineout axis is spared where possible.",
+            "title": "Downsample Factors",
+            "type": "object"
+          },
+          "downsample_method": {
+            "description": "'mean' when downsampled, 'none' when full resolution",
+            "title": "Downsample Method",
+            "type": "string"
+          },
+          "field": {
+            "description": "'data', 'fit', or the derived 'residual'",
+            "title": "Field",
+            "type": "string"
+          },
+          "full_shape": {
+            "description": "[lineouts, wavelengths] before downsampling",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Full Shape",
+            "type": "array"
+          },
+          "returned_shape": {
+            "description": "[lineouts, wavelengths] as returned",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Returned Shape",
+            "type": "array"
+          },
+          "values": {
+            "description": "Shape (len(y), len(x)) -- row-major by wavelength, directly usable as a Plotly heatmap z",
+            "items": {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "title": "Values",
+            "type": "array"
+          },
+          "which": {
+            "title": "Which",
+            "type": "string"
+          },
+          "x": {
+            "description": "Lineout axis coordinates",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "X",
+            "type": "array"
+          },
+          "x_label": {
+            "title": "X Label",
+            "type": "string"
+          },
+          "y": {
+            "description": "Wavelength coordinates",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Y",
+            "type": "array"
+          },
+          "y_label": {
+            "title": "Y Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "which",
+          "field",
+          "x_label",
+          "y_label",
+          "x",
+          "y",
+          "values",
+          "full_shape",
+          "returned_shape",
+          "downsample_factors",
+          "downsample_method"
+        ],
+        "title": "Spectrogram",
+        "type": "object"
+      },
+      "SpectrumInfo": {
+        "properties": {
+          "fields": {
+            "description": "Renderable fields; 'residual' is derived as data - fit",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "lineout_count": {
+            "title": "Lineout Count",
+            "type": "integer"
+          },
+          "path": {
+            "description": "Artifact path this spectrum was read from",
+            "title": "Path",
+            "type": "string"
+          },
+          "wavelength_count": {
+            "title": "Wavelength Count",
+            "type": "integer"
+          },
+          "which": {
+            "description": "'ele' or 'ion'",
+            "title": "Which",
+            "type": "string"
+          },
+          "x_label": {
+            "description": "Lineout axis name, e.g. 'Time (ps)' or 'Radius (\\mum)'",
+            "title": "X Label",
+            "type": "string"
+          },
+          "y_label": {
+            "description": "Spectral axis name, normally 'Wavelength'",
+            "title": "Y Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "which",
+          "path",
+          "x_label",
+          "y_label",
+          "lineout_count",
+          "wavelength_count",
+          "fields"
+        ],
+        "title": "SpectrumInfo",
+        "type": "object"
+      },
+      "UnavailableReason": {
+        "description": "Machine-readable reason a dataset view cannot be served.\n\nDistinguishing these matters: showing \"no data found\" for an angular run\nreads as a bug, when the truth is that the view is deliberately out of scope.",
+        "enum": [
+          "angular_not_supported",
+          "dataset_missing",
+          "dataset_unreadable",
+          "unexpected_schema",
+          "field_unavailable",
+          "index_out_of_range"
+        ],
+        "title": "UnavailableReason",
+        "type": "string"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "\nRead layer over the MLflow tracking server for browsing Thomson scattering\nanalysis runs. MLflow remains the source of truth; this service holds no\ndatabase of its own and never writes to it.\n",
+    "title": "TSADAR analysis browser API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/experiments": {
+      "get": {
+        "operationId": "list_experiments_api_experiments_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExperimentList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List active experiments",
+        "tags": [
+          "experiments"
+        ]
+      }
+    },
+    "/api/health": {
+      "get": {
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Liveness and MLflow reachability",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/runs": {
+      "get": {
+        "operationId": "list_runs_api_runs_get",
+        "parameters": [
+          {
+            "description": "Experiment name (or id)",
+            "in": "query",
+            "name": "experiment",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Experiment name (or id)",
+              "title": "Experiment"
+            }
+          },
+          {
+            "description": "Shot number, matched against params.\"data.shotnum\"",
+            "in": "query",
+            "name": "shot",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Shot number, matched against params.\"data.shotnum\"",
+              "title": "Shot"
+            }
+          },
+          {
+            "description": "MLflow lifecycle status: RUNNING, FINISHED, FAILED, KILLED",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "MLflow lifecycle status: RUNNING, FINISHED, FAILED, KILLED",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "tsadar progress tag, e.g. 'minimizing', 'completed'",
+            "in": "query",
+            "name": "stage",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "tsadar progress tag, e.g. 'minimizing', 'completed'",
+              "title": "Stage"
+            }
+          },
+          {
+            "description": "Submitting user (mlflow.user tag)",
+            "in": "query",
+            "name": "user",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Submitting user (mlflow.user tag)",
+              "title": "User"
+            }
+          },
+          {
+            "description": "Free-text substring match on run name. '%' and '_' act as SQL LIKE wildcards (any-sequence and any-character) rather than literals; MLflow's filter grammar has no ESCAPE clause to make them literal.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Free-text substring match on run name. '%' and '_' act as SQL LIKE wildcards (any-sequence and any-character) rather than literals; MLflow's filter grammar has no ESCAPE clause to make them literal.",
+              "title": "Q"
+            }
+          },
+          {
+            "description": "Sort key; prefix with '-' for descending. One of created, name, status, shot, loss. 'loss' orders on the 'overall loss' metric specifically -- unlike final_loss it cannot fall back to 'min loss'/'epoch loss', so runs lacking 'overall loss' sort as null; check loss_key when displaying the value. Duration is not sortable: it is computed from timestamps and MLflow cannot order by it.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sort key; prefix with '-' for descending. One of created, name, status, shot, loss. 'loss' orders on the 'overall loss' metric specifically -- unlike final_loss it cannot fall back to 'min loss'/'epoch loss', so runs lacking 'overall loss' sort as null; check loss_key when displaying the value. Duration is not sortable: it is computed from timestamps and MLflow cannot order by it.",
+              "title": "Sort"
+            }
+          },
+          {
+            "description": "Rows per page",
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Rows per page",
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Cursor from a previous response's next_page_token",
+            "in": "query",
+            "name": "page_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Cursor from a previous response's next_page_token",
+              "title": "Page Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search runs",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/runs/{run_id}": {
+      "get": {
+        "operationId": "get_run_api_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run detail with config tree and artifact listing",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/runs/{run_id}/artifacts/{artifact_path}": {
+      "get": {
+        "description": "Serve artifact bytes through the API so the frontend needs no S3 credentials.",
+        "operationId": "get_artifact_api_runs__run_id__artifacts__artifact_path__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "artifact_path",
+            "required": true,
+            "schema": {
+              "title": "Artifact Path",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {}
+            },
+            "description": "Artifact bytes"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream an artifact",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/runs/{run_id}/datasets": {
+      "get": {
+        "description": "Probe before rendering.\n\nAlways answers -- an angular or pre-contract run gets ``supported: false``\nplus a reason rather than an error, so the run detail view can pick a layout\nin one call.",
+        "operationId": "get_availability_api_runs__run_id__datasets_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetAvailability"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "What interactive views this run supports",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
+    "/api/runs/{run_id}/lineout": {
+      "get": {
+        "description": "The interactive replacement for the pre-rendered lineout PNGs.\n\nIRF and noise components are not in the netCDF datasets, so they are reported\nas unavailable rather than fabricated -- see ``components_unavailable``.",
+        "operationId": "get_lineout_api_runs__run_id__lineout_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "'ele' or 'ion'",
+            "in": "query",
+            "name": "which",
+            "required": false,
+            "schema": {
+              "default": "ele",
+              "description": "'ele' or 'ion'",
+              "title": "Which",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Lineout index; negative counts from the end",
+            "in": "query",
+            "name": "index",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Lineout index; negative counts from the end",
+              "title": "Index",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Lineout"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetUnavailableResponse"
+                }
+              }
+            },
+            "description": "Invalid field, spectrum or index"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetUnavailableResponse"
+                }
+              }
+            },
+            "description": "Dataset missing or unreadable"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetUnavailableResponse"
+                }
+              }
+            },
+            "description": "Recognized but unsupported, e.g. an angular run"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Measured vs fitted spectrum at one lineout",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
+    "/api/runs/{run_id}/metrics/{key}": {
+      "get": {
+        "description": "Metric keys contain spaces (``overall loss``), so they arrive URL-encoded.",
+        "operationId": "get_metric_history_api_runs__run_id__metrics__key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricHistory"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Full metric history (loss curves)",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/runs/{run_id}/profiles": {
+      "get": {
+        "operationId": "get_profiles_api_runs__run_id__profiles_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Profiles"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetUnavailableResponse"
+                }
+              }
+            },
+            "description": "Invalid field, spectrum or index"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetUnavailableResponse"
+                }
+              }
+            },
+            "description": "Dataset missing or unreadable"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetUnavailableResponse"
+                }
+              }
+            },
+            "description": "Recognized but unsupported, e.g. an angular run"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Fitted parameters vs lineout, with uncertainties where available",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
+    "/api/runs/{run_id}/spectrogram": {
+      "get": {
+        "operationId": "get_spectrogram_api_runs__run_id__spectrogram_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "'ele' or 'ion'",
+            "in": "query",
+            "name": "which",
+            "required": false,
+            "schema": {
+              "default": "ele",
+              "description": "'ele' or 'ion'",
+              "title": "Which",
+              "type": "string"
+            }
+          },
+          {
+            "description": "One of ['data', 'fit', 'residual']; 'residual' is derived as data - fit",
+            "in": "query",
+            "name": "field",
+            "required": false,
+            "schema": {
+              "default": "data",
+              "description": "One of ['data', 'fit', 'residual']; 'residual' is derived as data - fit",
+              "title": "Field",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Pixel budget. The array is block-averaged to at most this many points; the lineout axis is spared where possible, so wavelength is reduced first.",
+            "in": "query",
+            "name": "max_px",
+            "required": false,
+            "schema": {
+              "default": 20000,
+              "description": "Pixel budget. The array is block-averaged to at most this many points; the lineout axis is spared where possible, so wavelength is reduced first.",
+              "minimum": 1,
+              "title": "Max Px",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Spectrogram"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetUnavailableResponse"
+                }
+              }
+            },
+            "description": "Invalid field, spectrum or index"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetUnavailableResponse"
+                }
+              }
+            },
+            "description": "Dataset missing or unreadable"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetUnavailableResponse"
+                }
+              }
+            },
+            "description": "Recognized but unsupported, e.g. an angular run"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "2D spectrogram, downsampled server-side",
+        "tags": [
+          "datasets"
+        ]
+      }
+    }
+  }
+}
