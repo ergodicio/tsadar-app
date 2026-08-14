@@ -117,6 +117,32 @@ class TestSummaries:
         detail = gateway.get_run("run-noloss")
         assert detail.loss_key is None and detail.final_loss is None
 
+    def test_spectype_is_reported(self, settings, cache, fake_client):
+        from .conftest import SAMPLE_PARAMS
+
+        fake_client.runs["run-temporal"] = make_run(
+            run_id="run-temporal",
+            params={**SAMPLE_PARAMS, "other.extraoptions.spectype": "temporal"},
+        )
+        gateway = MlflowGateway(settings=settings, cache=cache, client=fake_client)
+        assert gateway.get_run("run-temporal").spectype == "temporal"
+
+    def test_angular_spectype_is_reported_not_suppressed(self, settings, cache, fake_client):
+        """Angular runs stay listed (issue #37); only interactive views are out of scope."""
+        from .conftest import SAMPLE_PARAMS
+
+        fake_client.runs["run-ang"] = make_run(
+            run_id="run-ang",
+            params={**SAMPLE_PARAMS, "other.extraoptions.spectype": "angular_full"},
+        )
+        gateway = MlflowGateway(settings=settings, cache=cache, client=fake_client)
+        assert gateway.get_run("run-ang").spectype == "angular_full"
+
+    def test_spectype_is_null_when_not_logged(self, settings, cache, fake_client):
+        fake_client.runs["run-bare"] = make_run(run_id="run-bare", params={"data.shotnum": "1"})
+        gateway = MlflowGateway(settings=settings, cache=cache, client=fake_client)
+        assert gateway.get_run("run-bare").spectype is None
+
     def test_stage_tag_is_surfaced_separately_from_lifecycle_status(self, gateway):
         detail = gateway.get_run("run-abc")
         assert detail.status == "FINISHED"

@@ -41,6 +41,15 @@ TERMINAL_STATUSES = frozenset({"FINISHED", "FAILED", "KILLED"})
 #: Switches to a tag once ergodicio/tsadar#115 lands.
 SHOT_PARAM = "data.shotnum"
 
+#: Param key holding the spectrum type. Reported but *not* trusted -- see
+#: :attr:`schemas.RunSummary.spectype`.
+SPECTYPE_PARAM = "other.extraoptions.spectype"
+
+#: Spectrum types the browser supports interactive views for. Angular Thomson
+#: needs its own diagnostics and is out of scope (see issue #37); those runs are
+#: still listed and still get their PNG gallery.
+ONE_D_SPECTYPES = frozenset({"temporal", "imaging"})
+
 #: tsadar's own progress tag, distinct from the MLflow lifecycle status.
 STAGE_TAG = "status"
 
@@ -244,6 +253,7 @@ class MlflowGateway:
             status=info.status,
             stage=tags.get(STAGE_TAG),
             shot=params.get(SHOT_PARAM),
+            spectype=params.get(SPECTYPE_PARAM),
             final_loss=metrics.get(loss_key) if loss_key else None,
             loss_key=loss_key,
             start_time=info.start_time,

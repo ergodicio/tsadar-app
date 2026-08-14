@@ -53,6 +53,17 @@ class RunSummary(BaseModel):
         description="tsadar's own progress tag ('preprocessing', 'minimizing', ... 'completed'), when logged",
     )
     shot: str | None = Field(default=None, description="Shot number, from the data.shotnum param")
+    spectype: str | None = Field(
+        default=None,
+        description=(
+            "Spectrum type as logged ('temporal', 'imaging', 'angular', 'angular_full'). "
+            "A HINT, NOT GROUND TRUTH: log_mlflow runs before fitter.fit, and loadData "
+            "overwrites spectype from the data file during prepare, so a deck saying "
+            "'temporal' run against angular data logs 'temporal'. Confirm from artifact "
+            "shape (binary/fit_and_data.nc is angular; ele_/ion_fit_and_data.nc is 1D) "
+            "before rendering anything axis-dependent."
+        ),
+    )
     final_loss: float | None = None
     loss_key: str | None = Field(default=None, description="Which metric final_loss was read from")
     start_time: int | None = Field(default=None, description="Unix epoch milliseconds")

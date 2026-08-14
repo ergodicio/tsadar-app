@@ -8,6 +8,42 @@ and evicted only to stay under a size cap.
 Tracking issue: [#37]. This document covers [#29]; the netCDF slicing endpoints
 that render interactive plots are [#30].
 
+## Scope: 1D Thomson, not angular
+
+The browser targets **time-resolved (`Time (ps)`) and space-resolved / imaging
+(`Radius (μm)`) Thomson scattering** — the routine OMEGA analysis workflow.
+**Angularly-resolved Thomson (`spectype: angular` / `angular_full`) is out of
+scope**: it needs its own diagnostics and is a research tool rather than a
+production analysis path. See [#37].
+
+This constrains *supported views*, not visibility. Angular runs share the same
+experiments, so they stay listed and keep their PNG gallery; what they must never
+do is render through a 1D code path whose axes mean something else.
+
+`RunSummary.spectype` reports the logged spectrum type, but it is **a hint, not
+ground truth**: `misc.log_mlflow(config)` runs in `runner.run` *before*
+`fitter.fit`, and `loadData` overwrites `spectype` from the data file during
+`prepare` — so a deck saying `temporal` run against angular data logs
+`temporal`. Ground truth is the artifact shape:
+
+| Signal | 1D | Angular |
+| --- | --- | --- |
+| Dataset | `binary/ele_fit_and_data.nc`, `binary/ion_fit_and_data.nc` | `binary/fit_and_data.nc` |
+| Written by | `plotters.plot_ts_data` | `plotters.plot_data_angular` |
+| x coordinate | `Time (ps)` / `Radius (\mum)` | `Scattering angle (degrees)` |
+
+Both dataset kinds hold the same two variables (`fit`, `data`) with the same
+number of dimensions, so falling back to `fit_and_data.nc` when the `ele_`/`ion_`
+files are missing would silently serve angle-vs-wavelength data to a UI labelling
+its x-axis as time. [#30] treats it as recognized-but-unsupported instead.
+
+Note the spatial label is stored literally as `Radius (\mum)`, a raw LaTeX
+fragment from `load_ts_data.py`; it needs handling before display.
+
+For the same reason, no `spectype` **filter** is offered on `/api/runs`: filtering
+on a value that can disagree with reality would quietly drop runs. The field is
+returned for display, and type is confirmed from artifacts on the detail path.
+
 ## Running it locally
 
 ```bash

@@ -40,6 +40,7 @@ SAMPLE_PARAMS = {
     "data.lineouts.type.ps": "ps",
     "mlflow.experiment": "inverse-thomson-scattering",
     "other.extraoptions.load_ion_spec": "False",
+    "other.extraoptions.spectype": "temporal",
     "other.refit_thresh": "5.0",
     "other.lamrangE": "[400, 700]",
     "parameters.electron.Te.val": "0.5",
