@@ -59,6 +59,13 @@ LOSS_KEYS = ("overall loss", "min loss", "epoch loss", "loss")
 
 #: Sort keys the API accepts, mapped to MLflow ``order_by`` expressions.
 #: Allowlisted rather than interpolated: these land in a query string.
+#:
+#: Note ``loss`` sorts specifically on ``overall loss`` -- MLflow can only order
+#: by a named metric, so it cannot follow the same per-run fallback that
+#: :data:`LOSS_KEYS` gives ``final_loss``. A run that logged only ``min loss``
+#: therefore sorts as though it had no loss at all, even though the table shows
+#: a value. ``loss_key`` in the response is what makes that visible, so clients
+#: displaying a loss column should surface it.
 SORTABLE = {
     "created": "attributes.start_time",
     "start_time": "attributes.start_time",
@@ -186,6 +193,10 @@ class MlflowGateway:
         if stage:
             clauses.append(f'tags."{STAGE_TAG}" = {_quote(stage)}')
         if q:
+            # `%` and `_` inside q stay live SQL LIKE wildcards. MLflow's filter
+            # grammar offers no ESCAPE clause and _quote already rejects the
+            # backslash an escape would need, so this is documented as the
+            # behavior rather than silently half-escaped.
             clauses.append(f"attributes.run_name LIKE {_quote(f'%{q}%')}")
 
         return " and ".join(clauses)

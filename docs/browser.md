@@ -140,9 +140,21 @@ literal, so filter values containing `'`, `"` or `\` are rejected with a 400
 rather than being interpolated into a query that would mean something else.
 Sort keys are allowlisted for the same reason.
 
+In `q`, `%` and `_` remain live SQL `LIKE` wildcards rather than literals.
+MLflow's filter grammar has no `ESCAPE` clause, and the backslash an escape would
+need is already rejected as un-quotable, so this is documented behavior rather
+than half-escaped: `q=scan%01` matches "scan" followed by anything then "01".
+
 **Sorting** accepts `created`, `name`, `status`, `shot`, `loss` (prefix with `-`
 for descending). Duration is *not* sortable: it is computed from start/end
 timestamps and MLflow cannot order by it.
+
+`sort=loss` orders on the **`overall loss` metric specifically**. MLflow can only
+order by a named metric, so sorting cannot follow the same per-run fallback that
+`final_loss` uses: a run that logged only `min loss` sorts as though it had no
+loss, even though the table shows a value for it. `loss_key` is what makes that
+visible, so a client rendering a loss column should surface it rather than
+presenting the column as uniformly comparable.
 
 **`final_loss` reports which metric it came from.** tsadar logs several loss
 metrics whose names contain spaces — `overall loss`, `min loss`, `epoch loss`.
@@ -173,6 +185,21 @@ the cache root and are moved into place atomically, so an interrupted fetch neve
 leaves a truncated entry. Concurrent requests for the same cold artifact share
 one download. Eviction is least-recently-used by mtime (bumped on each hit, since
 `atime` is unreliable on the `relatime` mounts containers usually get).
+
+The size cap is enforced after **every** fetch, including non-cacheable ones —
+those still write into the cache root, so skipping eviction there would let the
+directory grow past `CACHE_MAX_GB` until some later cacheable fetch cleaned up.
+
+The artifact a fetch is about to return is exempt from that eviction pass. Once
+Starlette has the file open, unlinking it is harmless on POSIX (the descriptor
+keeps the data alive), but there is a window between the fetch returning and the
+response opening the file where deleting it would produce a spurious 404. One
+consequence worth knowing: a single artifact larger than the whole cap leaves the
+cache over its limit rather than evicting the file being served. That is logged at
+`WARNING` rather than silently tolerated.
+
+Per-key download locks are reference counted and dropped once no thread is
+waiting, so the lock table does not grow for the lifetime of the process.
 
 ## What this does not do
 
