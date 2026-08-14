@@ -211,3 +211,90 @@ def client(gateway) -> TestClient:
 @pytest.fixture
 def manifest_bytes() -> bytes:
     return json.dumps({"schema_version": 1, "datasets": ["binary/ele_fit_and_data.nc"]}).encode()
+
+
+# -- dataset fixtures (issue #30) ---------------------------------------------
+
+
+def install_artifacts(fake_client: FakeMlflowClient, run_id: str, files: dict[str, bytes]) -> None:
+    """Register artifact bytes and the directory listing that exposes them.
+
+    The gateway lists artifacts to classify a run before reading anything, so a
+    test that only registers bytes would look like a run with no artifacts.
+    """
+    fake_client.artifact_files.setdefault(run_id, {}).update(files)
+
+    listing: dict[str, list] = {}
+    for path in files:
+        parent, _, _ = path.rpartition("/")
+        listing.setdefault(parent, []).append(file_info(path, file_size=len(files[path])))
+        if parent and not any(entry.path == parent for entry in listing.get("", [])):
+            listing.setdefault("", []).append(file_info(parent, is_dir=True))
+    fake_client.artifacts[run_id] = listing
+
+
+@pytest.fixture
+def dataset_service(gateway):
+    from tsadar_browser.datasets import DatasetService
+
+    return DatasetService(gateway=gateway)
+
+
+@pytest.fixture
+def dataset_client(gateway, dataset_service) -> TestClient:
+    from tsadar_browser.deps import get_dataset_service
+
+    app = create_app()
+    app.dependency_overrides[get_gateway] = lambda: gateway
+    app.dependency_overrides[get_dataset_service] = lambda: dataset_service
+    return TestClient(app)
+
+
+@pytest.fixture
+def one_d_run(fake_client, tmp_path) -> str:
+    """A temporal run with ele + ion spectra, learned parameters and sigmas."""
+    from .fixtures import learned_parameters_csv, sigmas_netcdf, write_spectrum
+
+    run_id = "run-abc"
+    install_artifacts(
+        fake_client,
+        run_id,
+        {
+            "binary/ele_fit_and_data.nc": write_spectrum(tmp_path / "ele", "ele_fit_and_data.nc"),
+            "binary/ion_fit_and_data.nc": write_spectrum(tmp_path / "ion", "ion_fit_and_data.nc"),
+            "csv/learned_parameters.csv": learned_parameters_csv(),
+            "sigmas.nc": sigmas_netcdf(tmp_path / "sig"),
+            "plots/fit_and_data.png": b"\x89PNG\r\n\x1a\n",
+        },
+    )
+    return run_id
+
+
+@pytest.fixture
+def angular_run(fake_client, tmp_path) -> str:
+    """An angular run: same variables and dimensionality, angular x axis."""
+    from .fixtures import ANGULAR_AXIS, learned_parameters_csv, write_spectrum
+
+    run_id = "run-angular"
+    fake_client.runs[run_id] = make_run(run_id=run_id, params={**SAMPLE_PARAMS, "other.extraoptions.spectype": "angular_full"})
+    install_artifacts(
+        fake_client,
+        run_id,
+        {
+            "binary/fit_and_data.nc": write_spectrum(
+                tmp_path / "ang", "fit_and_data.nc", x_label=ANGULAR_AXIS
+            ),
+            "csv/learned_parameters.csv": learned_parameters_csv(include_axis=False),
+            "plots/fit_and_data.png": b"\x89PNG\r\n\x1a\n",
+        },
+    )
+    return run_id
+
+
+@pytest.fixture
+def bare_run(fake_client) -> str:
+    """A pre-contract run: PNGs only, no datasets."""
+    run_id = "run-old"
+    fake_client.runs[run_id] = make_run(run_id=run_id)
+    install_artifacts(fake_client, run_id, {"plots/fit_and_data.png": b"\x89PNG\r\n\x1a\n"})
+    return run_id

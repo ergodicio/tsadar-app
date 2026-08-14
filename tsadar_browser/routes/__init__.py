@@ -1,5 +1,5 @@
 """API routers."""
 
-from . import experiments, health, runs
+from . import datasets, experiments, health, runs
 
-__all__ = ["experiments", "health", "runs"]
+__all__ = ["datasets", "experiments", "health", "runs"]

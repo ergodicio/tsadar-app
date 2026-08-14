@@ -10,7 +10,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import experiments, health, runs
+from .routes import datasets, experiments, health, runs
 from .settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -47,6 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router, prefix="/api")
     app.include_router(experiments.router, prefix="/api")
     app.include_router(runs.router, prefix="/api")
+    app.include_router(datasets.router, prefix="/api")
 
     logger.info("browser API configured against %s", settings.mlflow_tracking_uri)
     return app

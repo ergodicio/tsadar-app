@@ -12,3 +12,12 @@ mlflow
 boto3
 flatten_dict
 PyYAML
+
+# Reading the binary/*.nc analysis datasets for the interactive plots.
+# h5netcdf + h5py rather than netCDF4: pure-wheel install with no libnetcdf
+# system dependency to carry into the container.
+xarray
+h5netcdf
+h5py
+numpy
+pandas
