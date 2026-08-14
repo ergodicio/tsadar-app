@@ -103,6 +103,10 @@ defaults above.
 | `GET /api/runs/{run_id}` | Config tree, tags, metric summaries, artifact listing, manifest |
 | `GET /api/runs/{run_id}/metrics/{key}` | Full metric history for loss curves |
 | `GET /api/runs/{run_id}/artifacts/{path}` | Streaming passthrough with content type |
+| `GET /api/runs/{run_id}/datasets` | What interactive views this run supports, and why not when it doesn't |
+| `GET /api/runs/{run_id}/spectrogram` | 2D array, block-averaged to a pixel budget |
+| `GET /api/runs/{run_id}/lineout` | Measured vs fitted spectrum at one lineout |
+| `GET /api/runs/{run_id}/profiles` | Fitted parameters vs lineout, with sigmas where available |
 
 ### Notes on the contract
 
@@ -201,11 +205,102 @@ cache over its limit rather than evicting the file being served. That is logged 
 Per-key download locks are reference counted and dropped once no thread is
 waiting, so the lock table does not grow for the lifetime of the process.
 
+## Interactive plots from the netCDF datasets
+
+These endpoints ([#30]) are what make the browser better than a PNG gallery: they
+render from the arrays the fit actually produced.
+
+### Probe first
+
+`GET /api/runs/{id}/datasets` answers for **every** run — angular, pre-contract,
+or fully supported — rather than erroring, so the run detail view ([#32]) can pick
+a layout in one call:
+
+```json
+{
+  "kind": "one_d",
+  "supported": true,
+  "spectra": [{"which": "ele", "x_label": "Time (ps)", "lineout_count": 60,
+               "wavelength_count": 1024, "fields": ["data", "fit", "residual"]}],
+  "profiles_available": true,
+  "sigmas_available": false,
+  "unavailable_fields": {"irf": "..."}
+}
+```
+
+When a run can't be served, `supported` is false and `reason` is a code, not
+prose: `angular_not_supported`, `dataset_missing`, `dataset_unreadable`,
+`unexpected_schema`, `field_unavailable`, `index_out_of_range`. The distinction
+matters — showing "no data found" for an angular run reads as a bug when the
+truth is that the view is deliberately out of scope. The data endpoints use the
+same codes in their error bodies, with **409** for recognized-but-unsupported
+(angular) and **404** for genuinely absent.
+
+### What the datasets actually contain
+
+Less than [#30] assumed, so two things are worth stating plainly:
+
+- **Residual is derived**, as `data - fit`. It isn't stored.
+- **IRF and noise components are not in the netCDFs at all.** `plotters.py`
+  writes `{"fit": ..., "data": ...}` and nothing else; the components exist only
+  baked into the pre-rendered `lineouts/`, `best/` and `worst/` PNGs. They are
+  reported through `unavailable_fields` / `components_unavailable` rather than
+  invented. Making them genuinely available is a `plotters.py` change and
+  probably belongs with [ergodicio/tsadar#116].
+
+`sigmas.nc` lives at the artifact **root**, not under `binary/` — `calc_sigmas`
+is off by default, so absence is normal rather than an error. In
+`learned_parameters.csv`, `to_csv` writes the DataFrame index as a leading
+unnamed column, and the lineout axis column is identified by its parenthesized
+units (`Time (ps)`) since parameter columns are `<param>_<species>`.
+
+### Downsampling
+
+`max_px` is a pixel budget; the array is **block-averaged** (not decimated) down
+to it, so a narrow spectral feature is attenuated rather than skipped entirely.
+
+**Wavelength is reduced first and the lineout axis is spared wherever possible.**
+Each lineout is a separate fit with its own parameters, and it's the axis the
+scrubber in [#32] steps through, so trading lineouts for bytes costs far more than
+spectral resolution does. At a realistic 60 × 1024 against a 2000-pixel budget
+that means 60 × 32 — every lineout intact — rather than 30 × 34. The response
+reports `downsample_factors`, `downsample_method`, `full_shape` and
+`returned_shape` so the UI can say what it's showing.
+
+`values` is shaped `(len(y), len(x))` — row-major by wavelength — so it drops
+straight into a Plotly heatmap `z`, which is indexed `[y][x]`.
+
+The default `max_px` is **20,000**, deliberately below a realistic
+full-resolution spectrogram (60 × 1024 = 61,440), because [#30] asks that full
+resolution never be shipped by default. A heatmap panel is a few hundred pixels
+tall, so 1024 spectral points are already oversampled for display; clients that
+genuinely want everything can raise `max_px`.
+
+### Non-finite values and precision
+
+JSON has no NaN or Infinity, and Python's `json.dumps` emits a bare `NaN` that
+makes browser `JSON.parse` throw. Gaps in a fit are therefore serialized as
+`null` throughout these endpoints.
+
+Values are trimmed to **6 significant digits**. Full float repr roughly doubles
+the payload (a 60 × 256 spectrogram goes from ~290 KB to ~130 KB) for precision no
+plot can show. This is display data; anything needing the exact stored values
+should fetch the `.nc` through the artifact passthrough instead.
+
+One consequence: `residual` is differenced at full precision and *then* rounded,
+so it is not bit-identical to `data - fit` computed from the rounded arrays. The
+gap is the double-rounding floor — around 9e-6 absolute at these magnitudes.
+
 ## What this does not do
 
-No netCDF reading — that is [#30]. No writes of any kind, so no job submission;
-the Streamlit app's submit path targets retired infrastructure and is not
-resurrected here ([#35]).
+No writes of any kind, so no job submission; the Streamlit app's submit path
+targets retired infrastructure and is not resurrected here ([#35]).
+
+Angular Thomson interactive views are out of scope by design (see Scope above) —
+not unimplemented, but deliberately refused.
+
+[#32]: https://github.com/ergodicio/tsadar-app/issues/32
+[ergodicio/tsadar#116]: https://github.com/ergodicio/tsadar/issues/116
 
 [#29]: https://github.com/ergodicio/tsadar-app/issues/29
 [#30]: https://github.com/ergodicio/tsadar-app/issues/30
