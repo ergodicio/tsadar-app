@@ -1,0 +1,43 @@
+# Tests for the Thomson analysis browser backend (tsadar_browser).
+#
+# Deliberately minimal: ergodicio/tsadar-app#34 owns packaging and CI properly
+# (container build, /api/health smoke test, generated-client sync check) and
+# will extend or absorb this. It exists now so the backend is guarded on PRs
+# from the first merge rather than the last.
+name: browser tests
+
+on:
+  pull_request:
+    paths:
+      - "tsadar_browser/**"
+      - "tests/browser/**"
+      - "requirements-browser*.txt"
+      - ".github/workflows/browser-tests.yaml"
+  push:
+    branches:
+      - main
+    paths:
+      - "tsadar_browser/**"
+      - "tests/browser/**"
+      - "requirements-browser*.txt"
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-browser-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-browser-dev.txt
+
+      - name: Run tests
+        # The suite uses a fake MLflow client, so no credentials or network
+        # access are required.
+        run: python -m pytest tests/browser -v
