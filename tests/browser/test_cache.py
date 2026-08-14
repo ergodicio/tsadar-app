@@ -1,7 +1,9 @@
 """Artifact cache: path safety, hits, and LRU eviction."""
 
 import os
+import threading
 import time
+from collections import Counter
 
 import pytest
 
@@ -114,6 +116,96 @@ def test_eviction_removes_least_recently_used_first(tmp_path):
     entries, total = cache.stats()
     assert entries == 1
     assert total <= 300
+
+
+def test_cap_is_enforced_on_the_non_cacheable_path(tmp_path):
+    """Non-cacheable fetches still write into the cache root, so they must evict.
+
+    Regression: eviction only ran for cacheable=True, so repeated reads of a
+    RUNNING run's artifacts grew the directory past CACHE_MAX_GB until some later
+    cacheable fetch happened to clean up.
+    """
+    cache = ArtifactCache(root=tmp_path / "cache", max_bytes=1000)
+
+    def write(name):
+        def downloader(scratch):
+            target = scratch / name
+            target.write_bytes(b"x" * 800)
+            return target
+
+        return cache.fetch("run-live", name, downloader, cacheable=False)
+
+    write("a.bin")
+    write("b.bin")
+    write("c.bin")
+
+    _, total = cache.stats()
+    assert total <= 1000
+
+
+def test_just_fetched_file_is_not_evicted(tmp_path):
+    """The file being returned must survive to be streamed."""
+    cache = ArtifactCache(root=tmp_path / "cache", max_bytes=100)
+
+    def downloader(scratch):
+        target = scratch / "big.bin"
+        target.write_bytes(b"x" * 5000)
+        return target
+
+    result = cache.fetch("run-1", "big.bin", downloader, cacheable=True)
+    assert result.exists(), "an artifact larger than the cap must still be served"
+    assert result.read_bytes() == b"x" * 5000
+
+
+def test_key_locks_do_not_accumulate(tmp_path):
+    """Regression: a lock per distinct artifact leaked for the process lifetime."""
+    cache = ArtifactCache(root=tmp_path / "cache", max_bytes=10**9)
+
+    def downloader(scratch):
+        target = scratch / "a"
+        target.write_bytes(b"y" * 10)
+        return target
+
+    for index in range(25):
+        cache.fetch("run-1", f"p{index}/a", downloader, cacheable=True)
+
+    assert cache._key_locks == {}
+    assert cache._key_waiters == Counter()
+
+
+def test_key_lock_is_released_when_the_download_fails(tmp_path):
+    cache = ArtifactCache(root=tmp_path / "cache", max_bytes=10**9)
+
+    with pytest.raises(FileNotFoundError):
+        cache.fetch("run-1", "a.bin", lambda scratch: scratch / "absent", cacheable=True)
+
+    assert cache._key_locks == {}
+
+
+def test_concurrent_fetches_of_one_key_download_once(tmp_path):
+    """The dedup the per-key lock exists for must survive reference counting."""
+    cache = ArtifactCache(root=tmp_path / "cache", max_bytes=10**9)
+    downloads = []
+    start = threading.Barrier(8)
+
+    def downloader(scratch):
+        downloads.append(1)
+        target = scratch / "a.bin"
+        target.write_bytes(b"payload")
+        return target
+
+    def worker():
+        start.wait()
+        cache.fetch("run-1", "a.bin", downloader, cacheable=True)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(downloads) == 1, "concurrent requests for a cold artifact should share one download"
+    assert cache._key_locks == {}
 
 
 def test_stats_on_missing_root(tmp_path):

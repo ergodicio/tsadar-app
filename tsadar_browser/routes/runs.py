@@ -50,10 +50,27 @@ def list_runs(
     ] = None,
     stage: Annotated[str | None, Query(description="tsadar progress tag, e.g. 'minimizing', 'completed'")] = None,
     user: Annotated[str | None, Query(description="Submitting user (mlflow.user tag)")] = None,
-    q: Annotated[str | None, Query(description="Free-text substring match on run name")] = None,
+    q: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Free-text substring match on run name. '%' and '_' act as SQL LIKE "
+                "wildcards (any-sequence and any-character) rather than literals; "
+                "MLflow's filter grammar has no ESCAPE clause to make them literal."
+            )
+        ),
+    ] = None,
     sort: Annotated[
         str | None,
-        Query(description="Sort key; prefix with '-' for descending. One of created, name, status, shot, loss."),
+        Query(
+            description=(
+                "Sort key; prefix with '-' for descending. One of created, name, status, shot, loss. "
+                "'loss' orders on the 'overall loss' metric specifically -- unlike final_loss it "
+                "cannot fall back to 'min loss'/'epoch loss', so runs lacking 'overall loss' sort "
+                "as null; check loss_key when displaying the value. Duration is not sortable: it is "
+                "computed from timestamps and MLflow cannot order by it."
+            )
+        ),
     ] = None,
     page_size: Annotated[int, Query(ge=1, description="Rows per page")] = 50,
     page_token: Annotated[

@@ -14,7 +14,7 @@ import os
 import shutil
 import tempfile
 import threading
-from collections import defaultdict
+from collections import Counter
 from pathlib import Path
 from typing import Callable
 
@@ -57,7 +57,23 @@ class ArtifactCache:
         self.root = Path(root)
         self.max_bytes = max_bytes
         self._global_lock = threading.Lock()
-        self._key_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
+        # Per-key download locks, reference counted so the mapping does not grow
+        # for the lifetime of the process. A lock is dropped once no thread is
+        # waiting on it; the next request for that key makes a fresh one.
+        self._key_locks: dict[str, threading.Lock] = {}
+        self._key_waiters: Counter[str] = Counter()
+
+    def _claim_key_lock(self, key: str) -> threading.Lock:
+        with self._global_lock:
+            self._key_waiters[key] += 1
+            return self._key_locks.setdefault(key, threading.Lock())
+
+    def _release_key_lock(self, key: str) -> None:
+        with self._global_lock:
+            self._key_waiters[key] -= 1
+            if self._key_waiters[key] <= 0:
+                del self._key_waiters[key]
+                self._key_locks.pop(key, None)
 
     # -- layout ---------------------------------------------------------------
 
@@ -117,26 +133,32 @@ class ArtifactCache:
 
         # One download per key: concurrent requests for the same cold artifact
         # would otherwise each pull the whole file from S3.
-        with self._global_lock:
-            key_lock = self._key_locks[f"{run_id}/{artifact_path}"]
+        key = f"{run_id}/{artifact_path}"
+        key_lock = self._claim_key_lock(key)
+        try:
+            with key_lock:
+                if cacheable:
+                    hit = self.get(run_id, artifact_path)
+                    if hit is not None:
+                        return hit
 
-        with key_lock:
-            if cacheable:
-                hit = self.get(run_id, artifact_path)
-                if hit is not None:
-                    return hit
+                target.parent.mkdir(parents=True, exist_ok=True)
+                # Stage inside the cache root so the final move is same-filesystem
+                # and therefore atomic.
+                with tempfile.TemporaryDirectory(dir=self.root) as scratch:
+                    downloaded = Path(downloader(Path(scratch)))
+                    if not downloaded.is_file():
+                        raise FileNotFoundError(f"downloader did not produce a file for {artifact_path!r}")
+                    os.replace(downloaded, target)
+        finally:
+            self._release_key_lock(key)
 
-            target.parent.mkdir(parents=True, exist_ok=True)
-            # Stage inside the cache root so the final move is same-filesystem
-            # and therefore atomic.
-            with tempfile.TemporaryDirectory(dir=self.root) as scratch:
-                downloaded = Path(downloader(Path(scratch)))
-                if not downloaded.is_file():
-                    raise FileNotFoundError(f"downloader did not produce a file for {artifact_path!r}")
-                os.replace(downloaded, target)
-
-        if cacheable:
-            self.evict_if_needed()
+        # Enforce the cap on both paths. Non-cacheable fetches still write into
+        # the cache root, so skipping eviction here let the directory grow past
+        # CACHE_MAX_GB until the next cacheable fetch happened to clean up.
+        # `protect` keeps the file we are about to hand to the caller from being
+        # evicted out from under the response that is about to stream it.
+        self.evict_if_needed(protect=target)
         return target
 
     # -- eviction -------------------------------------------------------------
@@ -159,12 +181,19 @@ class ArtifactCache:
         entries = self._entries()
         return len(entries), sum(size for _, size, _ in entries)
 
-    def evict_if_needed(self) -> int:
+    def evict_if_needed(self, protect: Path | None = None) -> int:
         """Delete least-recently-used files until under the size cap.
 
-        Returns the number of bytes freed. Deleting a file that is currently
-        being streamed is safe on POSIX -- the open descriptor keeps it alive
-        until the response finishes.
+        Returns the number of bytes freed. ``protect`` is never evicted, which is
+        how a just-fetched artifact survives long enough to be streamed: once
+        Starlette has the file open, unlinking it is harmless on POSIX because
+        the descriptor keeps the data alive, but there is a window between
+        :meth:`fetch` returning and the response opening the file where deleting
+        it would produce a spurious 404.
+
+        A single artifact larger than the whole cap therefore leaves the cache
+        over its limit rather than evicting the file that is about to be served.
+        That is logged rather than silently tolerated.
         """
         with self._global_lock:
             entries = self._entries()
@@ -172,8 +201,11 @@ class ArtifactCache:
             if total <= self.max_bytes:
                 return 0
 
+            protected = protect.resolve() if protect is not None else None
             freed = 0
             for path, size, _ in sorted(entries, key=lambda item: item[2]):
+                if protected is not None and path.resolve() == protected:
+                    continue
                 try:
                     path.unlink()
                 except OSError:  # pragma: no cover - raced with another evictor
@@ -184,6 +216,13 @@ class ArtifactCache:
                     break
 
             logger.info("evicted %d bytes from artifact cache", freed)
+            if total > self.max_bytes:
+                logger.warning(
+                    "artifact cache still %d bytes over its %d byte cap after eviction; "
+                    "a single artifact may exceed CACHE_MAX_GB",
+                    total - self.max_bytes,
+                    self.max_bytes,
+                )
             return freed
 
     def clear(self) -> None:
