@@ -2,22 +2,136 @@
 #
 # Deliberately separate from requirements.txt: the Streamlit app pins
 # tsadar@v0.1.2 and pulls in JAX, none of which the read-only browser needs.
+#
+# Fully pinned, transitive dependencies included. The point of the immutable
+# version tags in .github/workflows/browser-image.yaml is that a given tag
+# always means the same image; a floating requirement defeats that, because two
+# builds of the same VERSION would install whatever had been released in
+# between. A rebuild of an old VERSION should reproduce it.
+#
+# Resolved for the runtime stage's interpreter and platform (CPython 3.11,
+# linux/amd64 -- see docker/browser/Dockerfile). Regenerate after changing a
+# direct dependency below:
+#
+#   pip install --dry-run --ignore-installed --report resolved.json \
+#       -r requirements-browser.txt
+#
+# then rewrite the pins from resolved.json. Bump VERSION in the same PR.
+
+# -- direct: served API --------------------------------------------------------
+fastapi==0.141.1
+uvicorn[standard]==0.52.3
+pydantic==2.13.4
+pydantic-settings==2.15.0
+
+# -- direct: MLflow read layer -------------------------------------------------
 # The full mlflow package (not mlflow-skinny) is required for the S3 artifact
 # repository used to fetch artifacts from s3://public-ergodic-continuum.
-fastapi
-uvicorn[standard]
-pydantic>=2
-pydantic-settings>=2
-mlflow
-boto3
-flatten_dict
-PyYAML
+mlflow==3.15.1
+boto3==1.43.72
 
-# Reading the binary/*.nc analysis datasets for the interactive plots.
+# -- direct: config handling ---------------------------------------------------
+flatten-dict==0.5.0
+pyyaml==6.0.3
+
+# -- direct: reading the binary/*.nc analysis datasets -------------------------
 # h5netcdf + h5py rather than netCDF4: pure-wheel install with no libnetcdf
 # system dependency to carry into the container.
-xarray
-h5netcdf
-h5py
-numpy
-pandas
+xarray==2026.7.0
+h5netcdf==1.8.1
+h5py==3.16.0
+numpy==2.4.6
+pandas==2.3.3
+
+# -- transitive ----------------------------------------------------------------
+# Pinned, not curated: do not edit by hand, regenerate with the command above.
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.3
+aiosignal==1.4.0
+alembic==1.19.1
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.14.2
+attrs==26.1.0
+blinker==1.9.0
+botocore==1.43.72
+cachetools==7.1.7
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.0
+click==8.4.2
+cloudpickle==3.1.2
+contourpy==1.3.3
+cryptography==49.0.0
+cycler==0.12.1
+databricks-sdk==0.128.0
+docker==7.2.0
+flask==3.1.3
+flask-cors==6.0.5
+fonttools==4.63.0
+frozenlist==1.8.0
+gitdb==4.0.12
+gitpython==3.1.59
+google-auth==2.56.3
+graphene==3.4.3
+graphql-core==3.2.11
+graphql-relay==3.2.0
+greenlet==3.5.5
+gunicorn==26.0.0
+h11==0.16.0
+httptools==0.8.0
+huey==3.3.4
+idna==3.18
+importlib_metadata==9.0.0
+itsdangerous==2.2.0
+jinja2==3.1.6
+jmespath==1.1.0
+joblib==1.5.3
+kiwisolver==1.5.0
+mako==1.4.1
+markupsafe==3.0.3
+matplotlib==3.11.1
+mlflow-skinny==3.15.1
+mlflow-tracing==3.15.1
+multidict==6.7.1
+narwhals==2.24.0
+opentelemetry-api==1.44.0
+opentelemetry-proto==1.44.0
+opentelemetry-sdk==1.44.0
+opentelemetry-semantic-conventions==0.65b0
+packaging==26.3
+pillow==12.3.0
+prettytable==3.18.0
+propcache==0.5.2
+protobuf==6.33.6
+pyarrow==25.0.1
+pyasn1==0.6.4
+pyasn1_modules==0.4.2
+pycparser==3.0
+pydantic_core==2.46.4
+pyparsing==3.3.2
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.2
+pytz==2026.3.post1
+requests==2.34.2
+s3transfer==0.19.2
+scikit-learn==1.9.0
+scipy==1.17.1
+six==1.17.0
+skops==0.14.0
+smmap==5.0.3
+sqlalchemy==2.0.52
+sqlparse==0.6.0
+starlette==1.6.0
+threadpoolctl==3.6.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+tzdata==2026.3
+urllib3==2.7.0
+uvloop==0.22.1
+watchfiles==1.2.0
+wcwidth==0.8.2
+websockets==17.0.1
+werkzeug==3.1.8
+yarl==1.24.5
+zipp==4.1.0

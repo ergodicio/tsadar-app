@@ -76,6 +76,7 @@ All configuration is environment variables (a `.env` file also works).
 | `CACHE_DIR` | `$TMPDIR/tsadar-browser-cache` | Artifact cache root |
 | `CACHE_MAX_GB` | `10` | Cache size cap; LRU eviction above it |
 | `CORS_ORIGINS` | `localhost:5173` | Vite dev origins; comma-separated, empty disables CORS |
+| `STATIC_DIR` | unset | Built SPA to serve alongside `/api`; unset in development |
 | `MAX_PAGE_SIZE` | `200` | Ceiling on `page_size` |
 | `MLFLOW_HTTP_REQUEST_TIMEOUT` | `15` | Per-request timeout, seconds |
 | `MLFLOW_HTTP_REQUEST_MAX_RETRIES` | `2` | Retries before giving up |
@@ -311,6 +312,87 @@ should fetch the `.nc` through the artifact passthrough instead.
 One consequence: `residual` is differenced at full precision and *then* rounded,
 so it is not bit-identical to `data - fit` computed from the rounded arrays. The
 gap is the double-rounding floor — around 9e-6 absolute at these magnitudes.
+
+## Deployment
+
+The image ([#34]) is one container serving both halves: a node stage builds the
+SPA, a python stage runs uvicorn and serves that bundle from `STATIC_DIR`. Because
+it is one origin, the deployed app needs no proxy and no CORS — `CORS_ORIGINS` is
+empty in the image and only exists for the Vite dev server.
+
+```bash
+docker build -f docker/browser/Dockerfile -t thomson-browser:dev .
+docker run -p 8000:8000 -e MLFLOW_TRACKING_USERNAME=... -e MLFLOW_TRACKING_PASSWORD=... thomson-browser:dev
+```
+
+**Serving the SPA is not just a static mount.** Two cases a plain mount gets
+wrong, both covered by tests:
+
+- `/runs/abc123` is a route the router resolves in the browser, not a file, so it
+  must return `index.html`. Otherwise every shared deep link 404s — much of the
+  point of leaving Streamlit.
+- An unknown `/api` path must stay a **JSON 404**, not the app shell. Serving the
+  shell there would turn a typo'd endpoint into a 200 of HTML, so the client would
+  fail while parsing rather than on the status code.
+
+The two halves get opposite cache headers, and both matter: `assets/` is
+content-hashed, so it is served `public, max-age=31536000, immutable` — the bytes
+behind a given URL provably cannot change. `index.html` is the one file whose URL
+*doesn't* change between images, so it is served `no-store`; caching it would pin
+a browser to the previous bundle's asset names. Getting either wrong is invisible
+in testing (the app still works, just slowly or stalely), so both are asserted in
+`tests/browser/test_spa.py` and again against the real container in CI.
+
+**Tags are immutable.** The tag comes from the repository-root `VERSION` file
+(`thomson-browser-v0.1.0`) and the workflow **refuses to push a tag that already
+exists** in ECR. continuum-infra pins image tags, so a floating tag would let a
+pinned deployment change underneath itself — the failure mode `continuum.yaml`'s
+header comment documents. Bump `VERSION` in the same PR as the change you want
+deployed; see `docker/browser/VERSION.md`.
+
+That workflow check reads the registry and then pushes, so on its own it cannot
+close the gap between the two — two runs racing, or a re-run of an older commit,
+could still both pass the check. It catches the case it is meant to catch (a
+forgotten `VERSION` bump) and fails in a minute rather than after a full build,
+but **the enforcement belongs on the registry**:
+
+```bash
+aws ecr put-image-tag-mutability \
+    --repository-name continuum --image-tag-mutability IMMUTABLE
+```
+
+With that set, ECR itself refuses a duplicate tag regardless of who races, and the
+workflow check becomes a fast, friendly error rather than the only guard. This is
+a registry-side change to a repository shared with the Streamlit and runner
+images, whose current workflow *does* overwrite its tags — so it needs to land
+alongside fixing `deploy.yaml`, not before it. Tracked as part of the
+continuum-infra handoff rather than done here.
+
+**Requirements are fully pinned**, transitive dependencies included
+(`requirements-browser.txt`). Immutable tags are only meaningful if a tag denotes
+one image: with floating requirements, two builds of the same `VERSION` install
+whatever was released in between, and rebuilding an old `VERSION` no longer
+reproduces it. The file carries the command to regenerate it.
+
+CI also publishes **the image it tested** rather than rebuilding for the push:
+one job builds, boots and smoke-tests the image, then `docker tag`s and pushes
+that same local image. Building twice — once to test, once to publish — means the
+bytes reaching ECR were never booted.
+
+The older `deploy.yaml` (Streamlit, runner, tesseract) is left in place, since
+those images are being kept. It does *not* have this discipline — its tags are
+hardcoded and overwritten on every push to main — and that is annotated there
+rather than changed, because fixing it means deciding what happens to the
+currently-deployed pins.
+
+CI boots the container against a **deliberately unreachable** MLflow and asserts
+`/api/health` answers 200 with `status: degraded` — not merely that it returns
+200, which a hardcoded success would also do. That is the state a task starts in
+when credentials are missing, and it must answer rather than hang.
+
+One worker per container, deliberately: the artifact cache's LRU bookkeeping and
+download deduplication are in-process locks, so multiple workers would each keep
+their own view of it. Scale with tasks.
 
 ## What this does not do
 
