@@ -335,9 +335,13 @@ wrong, both covered by tests:
   shell there would turn a typo'd endpoint into a 200 of HTML, so the client would
   fail while parsing rather than on the status code.
 
-`index.html` is served `no-cache` while `assets/` is content-hashed and cached
-hard, so a new image's assets are actually fetched rather than shadowed by a
-cached shell.
+The two halves get opposite cache headers, and both matter: `assets/` is
+content-hashed, so it is served `public, max-age=31536000, immutable` — the bytes
+behind a given URL provably cannot change. `index.html` is the one file whose URL
+*doesn't* change between images, so it is served `no-store`; caching it would pin
+a browser to the previous bundle's asset names. Getting either wrong is invisible
+in testing (the app still works, just slowly or stalely), so both are asserted in
+`tests/browser/test_spa.py` and again against the real container in CI.
 
 **Tags are immutable.** The tag comes from the repository-root `VERSION` file
 (`thomson-browser-v0.1.0`) and the workflow **refuses to push a tag that already
@@ -345,6 +349,35 @@ exists** in ECR. continuum-infra pins image tags, so a floating tag would let a
 pinned deployment change underneath itself — the failure mode `continuum.yaml`'s
 header comment documents. Bump `VERSION` in the same PR as the change you want
 deployed; see `docker/browser/VERSION.md`.
+
+That workflow check reads the registry and then pushes, so on its own it cannot
+close the gap between the two — two runs racing, or a re-run of an older commit,
+could still both pass the check. It catches the case it is meant to catch (a
+forgotten `VERSION` bump) and fails in a minute rather than after a full build,
+but **the enforcement belongs on the registry**:
+
+```bash
+aws ecr put-image-tag-mutability \
+    --repository-name continuum --image-tag-mutability IMMUTABLE
+```
+
+With that set, ECR itself refuses a duplicate tag regardless of who races, and the
+workflow check becomes a fast, friendly error rather than the only guard. This is
+a registry-side change to a repository shared with the Streamlit and runner
+images, whose current workflow *does* overwrite its tags — so it needs to land
+alongside fixing `deploy.yaml`, not before it. Tracked as part of the
+continuum-infra handoff rather than done here.
+
+**Requirements are fully pinned**, transitive dependencies included
+(`requirements-browser.txt`). Immutable tags are only meaningful if a tag denotes
+one image: with floating requirements, two builds of the same `VERSION` install
+whatever was released in between, and rebuilding an old `VERSION` no longer
+reproduces it. The file carries the command to regenerate it.
+
+CI also publishes **the image it tested** rather than rebuilding for the push:
+one job builds, boots and smoke-tests the image, then `docker tag`s and pushes
+that same local image. Building twice — once to test, once to publish — means the
+bytes reaching ECR were never booted.
 
 The older `deploy.yaml` (Streamlit, runner, tesseract) is left in place, since
 those images are being kept. It does *not* have this discipline — its tags are

@@ -69,6 +69,31 @@ class TestSpaServing:
         assert "no-cache" in spa_client.get("/runs/abc").headers.get("cache-control", "")
 
 
+class TestCaching:
+    """The two halves of the bundle need opposite caching, and getting either
+    wrong is invisible: the app still works, it is just slow or stale."""
+
+    def test_hashed_assets_are_immutable(self, spa_client):
+        # Safe only because the filename is content-hashed, which is what makes a
+        # year-long cache correct rather than a stale-asset bug waiting to happen.
+        cache_control = spa_client.get("/assets/index-abc123.js").headers["cache-control"]
+        assert "immutable" in cache_control
+        assert "max-age=31536000" in cache_control
+
+    def test_the_shell_is_never_cached(self, spa_client):
+        # The opposite of the assets: this is the one file whose URL does not
+        # change between images, so caching it pins the browser to the old bundle.
+        for path in ("/", "/runs/abc123", "/compare"):
+            cache_control = spa_client.get(path).headers.get("cache-control", "")
+            assert "no-store" in cache_control, f"{path} was cacheable: {cache_control!r}"
+
+    def test_unhashed_files_are_not_marked_immutable(self, spa_client):
+        # favicon.ico keeps its name across builds, so it must not be pinned for a
+        # year the way a content-hashed asset can be.
+        cache_control = spa_client.get("/favicon.ico").headers.get("cache-control", "")
+        assert "immutable" not in cache_control
+
+
 class TestApiIsNeverShadowed:
     def test_unknown_api_path_is_a_json_404_not_the_shell(self, spa_client):
         """Returning the shell here would make a typo'd endpoint a 200 of HTML,

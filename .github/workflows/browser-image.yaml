@@ -1,16 +1,29 @@
 # Build, smoke-test and publish the Thomson analysis browser image.
 #
-# Two things this does that the older deploy.yaml does not:
+# Three things this does that the older deploy.yaml does not:
 #
 # - **Immutable tags.** The tag comes from the repository-root VERSION file and the
 #   workflow refuses to push a tag that already exists in ECR. continuum-infra
 #   pins image tags, so a floating tag would let a pinned deployment change
 #   underneath itself -- the failure mode continuum.yaml's header comment
 #   documents. Bump VERSION in the same PR as the change you want deployed.
+#
+#   That check reads the registry and then pushes, so it cannot close the window
+#   between the two on its own. It catches the case it is meant to catch -- a
+#   forgotten VERSION bump -- but the actual guarantee has to come from the
+#   registry: set `imageTagMutability: IMMUTABLE` on the ECR repository and a
+#   duplicate tag is refused by ECR no matter who races. See docs/browser.md.
 # - **A real smoke test before publishing.** The container is booted and
 #   /api/health is called with no MLflow reachable, because that is exactly the
 #   state a task starts in if credentials are missing, and it must answer rather
 #   than hang or crash.
+# - **The tested image is the published image.** Build once, smoke-test that
+#   image, then tag and push the very same local image. An earlier version of this
+#   workflow ran a second `build-push-action` in a separate publish job, which
+#   meant the bytes that reached ECR had never been booted -- a cache miss, a
+#   floating base-image tag or an unpinned dependency between the two builds and
+#   the artifact tested is not the artifact deployed. Hence one job: publishing
+#   needs the daemon that holds the tested image.
 #
 # Deployment itself is ergodicio/continuum-infra#132; this only produces the
 # image and reports its digest.
@@ -41,14 +54,31 @@ env:
   IMAGE_NAME: thomson-browser
 
 jobs:
-  # Runs on pull requests and on main: nothing is published without it passing.
-  build-and-smoke-test:
+  build:
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
+
+      - name: Decide whether this run publishes
+        # Publishing is restricted to main. `github.event_name != 'pull_request'`
+        # alone was not enough: workflow_dispatch can be triggered against any
+        # branch, so a manual run from a feature branch would have published that
+        # branch's build under a VERSION tag infra pins. Interpolations go through
+        # env rather than into the script body, so a branch name cannot become
+        # shell.
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$EVENT" != "pull_request" ] && [ "$REF" = "refs/heads/main" ]; then
+            echo "PUBLISH=true" >> "$GITHUB_ENV"
+            echo "This run will publish."
+          else
+            echo "PUBLISH=false" >> "$GITHUB_ENV"
+            echo "Build and smoke test only ($EVENT on $REF)."
+          fi
 
       - name: Read the version
         id: version
@@ -64,6 +94,36 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      - name: Configure AWS credentials
+        if: env.PUBLISH == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        if: env.PUBLISH == 'true'
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Refuse to overwrite an existing tag
+        if: env.PUBLISH == 'true'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          # Checked before the build so a forgotten VERSION bump fails in a minute
+          # rather than after a full build and push attempt. This is a courtesy
+          # check, not the guarantee -- see the header comment and docs/browser.md
+          # on `imageTagMutability: IMMUTABLE`.
+          if aws ecr describe-images \
+              --repository-name "$ECR_REPOSITORY" \
+              --image-ids imageTag="$TAG" >/dev/null 2>&1; then
+            echo "::error::$TAG already exists in $ECR_REPOSITORY. Bump VERSION instead of overwriting it."
+            exit 1
+          fi
+          echo "$TAG is free"
+
       - name: Build the image
         uses: docker/build-push-action@v6
         with:
@@ -72,6 +132,9 @@ jobs:
           # linux/amd64 to match the Fargate platform; the tesseract config in
           # this repo pins the same.
           platforms: linux/amd64
+          # Loaded into the local daemon rather than pushed: the smoke test runs
+          # against this image, and the publish step below pushes this same image
+          # rather than building a second one.
           push: false
           load: true
           tags: ${{ env.IMAGE_NAME }}:ci
@@ -130,6 +193,34 @@ jobs:
             exit 1
           fi
 
+      - name: Hashed assets are served with an immutable cache header
+        run: |
+          # Vite content-hashes these filenames, so the bytes behind a given URL
+          # never change and a year-long cache is safe. Asserted here because a
+          # missing header is invisible -- everything still works, just slower on
+          # every visit.
+          asset="$(curl -fsS --max-time 5 http://127.0.0.1:8000/ \
+            | grep -o '/assets/[^"]*\.js' | head -1)"
+          if [ -z "$asset" ]; then
+            echo "::error::no hashed asset referenced by index.html"
+            exit 1
+          fi
+
+          headers="$(curl -fsS -D - -o /dev/null --max-time 5 "http://127.0.0.1:8000${asset}")"
+          echo "$headers"
+          if ! echo "$headers" | grep -iq 'cache-control:.*immutable'; then
+            echo "::error::${asset} was served without an immutable Cache-Control"
+            exit 1
+          fi
+
+          # index.html must be the opposite: cached, and a new image's assets are
+          # never fetched.
+          shell_headers="$(curl -fsS -D - -o /dev/null --max-time 5 http://127.0.0.1:8000/runs/abc123)"
+          if ! echo "$shell_headers" | grep -iq 'cache-control:.*no-store'; then
+            echo "::error::the app shell was served without a no-store Cache-Control"
+            exit 1
+          fi
+
       - name: Container logs
         if: always()
         run: docker logs browser-smoke || true
@@ -138,59 +229,34 @@ jobs:
         if: always()
         run: docker rm -f browser-smoke || true
 
-  publish:
-    # Only from main, and only after the smoke test.
-    needs: build-and-smoke-test
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-
-      - name: Refuse to overwrite an existing tag
+      - name: Push the image that was just tested
+        id: push
+        if: env.PUBLISH == 'true'
         env:
-          TAG: ${{ needs.build-and-smoke-test.outputs.tag }}
+          TAG: ${{ steps.version.outputs.tag }}
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          # The whole point of an immutable tag is that a pinned deployment cannot
-          # change underneath itself, so an existing tag is an error, not a
-          # reason to overwrite.
-          if aws ecr describe-images \
-              --repository-name "$ECR_REPOSITORY" \
-              --image-ids imageTag="$TAG" >/dev/null 2>&1; then
-            echo "::error::$TAG already exists in $ECR_REPOSITORY. Bump VERSION instead of overwriting it."
+          # `docker tag` + `docker push` rather than a second build: this pushes
+          # the exact image the smoke test booted. No floating tag is pushed --
+          # this is the only tag.
+          # pipefail is on by default in Actions' bash, but stated explicitly
+          # because piping into tee would otherwise mask a failed push.
+          set -o pipefail
+          target="$REGISTRY/$ECR_REPOSITORY:$TAG"
+          docker tag "${IMAGE_NAME}:ci" "$target"
+          docker push "$target" 2>&1 | tee push.log
+
+          digest="$(awk '/digest: sha256:/ {for (i=1;i<=NF;i++) if ($i ~ /^sha256:/) print $i}' push.log | tail -1)"
+          if [ -z "$digest" ]; then
+            echo "::error::could not read the pushed digest"
             exit 1
           fi
-          echo "$TAG is free"
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Build and push
-        id: push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/browser/Dockerfile
-          platforms: linux/amd64
-          push: true
-          # No floating tag: this is the only tag pushed.
-          tags: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ needs.build-and-smoke-test.outputs.tag }}
-          cache-from: type=gha
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Report the digest for the infra pin
+        if: env.PUBLISH == 'true'
         env:
-          TAG: ${{ needs.build-and-smoke-test.outputs.tag }}
+          TAG: ${{ steps.version.outputs.tag }}
           DIGEST: ${{ steps.push.outputs.digest }}
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
