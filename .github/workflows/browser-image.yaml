@@ -1,0 +1,209 @@
+# Build, smoke-test and publish the Thomson analysis browser image.
+#
+# Two things this does that the older deploy.yaml does not:
+#
+# - **Immutable tags.** The tag comes from the repository-root VERSION file and the
+#   workflow refuses to push a tag that already exists in ECR. continuum-infra
+#   pins image tags, so a floating tag would let a pinned deployment change
+#   underneath itself -- the failure mode continuum.yaml's header comment
+#   documents. Bump VERSION in the same PR as the change you want deployed.
+# - **A real smoke test before publishing.** The container is booted and
+#   /api/health is called with no MLflow reachable, because that is exactly the
+#   state a task starts in if credentials are missing, and it must answer rather
+#   than hang or crash.
+#
+# Deployment itself is ergodicio/continuum-infra#132; this only produces the
+# image and reports its digest.
+name: browser image
+
+on:
+  pull_request:
+    paths:
+      - "docker/browser/**"
+      - "tsadar_browser/**"
+      - "frontend/**"
+      - "requirements-browser.txt"
+      - "VERSION"
+      - ".github/workflows/browser-image.yaml"
+  push:
+    branches:
+      - main
+    paths:
+      - "docker/browser/**"
+      - "tsadar_browser/**"
+      - "frontend/**"
+      - "requirements-browser.txt"
+      - "VERSION"
+  workflow_dispatch:
+
+env:
+  ECR_REPOSITORY: continuum
+  IMAGE_NAME: thomson-browser
+
+jobs:
+  # Runs on pull requests and on main: nothing is published without it passing.
+  build-and-smoke-test:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the version
+        id: version
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [ -z "$version" ]; then
+            echo "::error::VERSION is empty"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=${IMAGE_NAME}-v${version}" >> "$GITHUB_OUTPUT"
+          echo "Building ${IMAGE_NAME}-v${version}"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/browser/Dockerfile
+          # linux/amd64 to match the Fargate platform; the tesseract config in
+          # this repo pins the same.
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Boot the container with no MLflow reachable
+        run: |
+          # Deliberately pointed at a dead address: a task with missing or wrong
+          # credentials is the realistic failure, and /api/health must still
+          # answer so the ALB does not recycle the task.
+          docker run -d --name browser-smoke -p 8000:8000 \
+            -e MLFLOW_TRACKING_URI=http://127.0.0.1:1/unreachable \
+            ${IMAGE_NAME}:ci
+
+      - name: /api/health answers 200 and reports degraded
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl -fsS --max-time 5 http://127.0.0.1:8000/api/health -o health.json; then
+              break
+            fi
+            sleep 2
+          done
+
+          if [ ! -s health.json ]; then
+            echo "::error::/api/health never answered"
+            docker logs browser-smoke
+            exit 1
+          fi
+
+          cat health.json
+          # Degraded, not ok: MLflow is unreachable by construction. Asserting
+          # `degraded` rather than just a 200 proves the probe actually ran
+          # instead of the endpoint returning a hardcoded success.
+          python - <<'PY'
+          import json, sys
+          health = json.load(open("health.json"))
+          assert health["status"] == "degraded", f"expected degraded, got {health['status']}"
+          assert health["mlflow_reachable"] is False, "expected mlflow_reachable false"
+          assert health["mlflow_error"], "expected an explanation of why MLflow is unreachable"
+          print("health check OK:", health["status"])
+          PY
+
+      - name: The SPA is served and deep links resolve
+        run: |
+          # A client-side route must return the app shell, not a 404: shareable
+          # deep links are much of the point of the SPA.
+          curl -fsS --max-time 5 http://127.0.0.1:8000/ | grep -q '<div id="root">'
+          curl -fsS --max-time 5 http://127.0.0.1:8000/runs/abc123 | grep -q '<div id="root">'
+
+          # An unknown /api path must stay a JSON 404 rather than the shell,
+          # or a client would fail while parsing instead of on the status.
+          status="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/nonexistent)"
+          if [ "$status" != "404" ]; then
+            echo "::error::/api/nonexistent returned $status, expected 404"
+            exit 1
+          fi
+
+      - name: Container logs
+        if: always()
+        run: docker logs browser-smoke || true
+
+      - name: Stop the container
+        if: always()
+        run: docker rm -f browser-smoke || true
+
+  publish:
+    # Only from main, and only after the smoke test.
+    needs: build-and-smoke-test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Refuse to overwrite an existing tag
+        env:
+          TAG: ${{ needs.build-and-smoke-test.outputs.tag }}
+        run: |
+          # The whole point of an immutable tag is that a pinned deployment cannot
+          # change underneath itself, so an existing tag is an error, not a
+          # reason to overwrite.
+          if aws ecr describe-images \
+              --repository-name "$ECR_REPOSITORY" \
+              --image-ids imageTag="$TAG" >/dev/null 2>&1; then
+            echo "::error::$TAG already exists in $ECR_REPOSITORY. Bump VERSION instead of overwriting it."
+            exit 1
+          fi
+          echo "$TAG is free"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/browser/Dockerfile
+          platforms: linux/amd64
+          push: true
+          # No floating tag: this is the only tag pushed.
+          tags: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ needs.build-and-smoke-test.outputs.tag }}
+          cache-from: type=gha
+
+      - name: Report the digest for the infra pin
+        env:
+          TAG: ${{ needs.build-and-smoke-test.outputs.tag }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          # The digest, not the tag, is what identifies the image beyond doubt --
+          # this is the handoff to continuum-infra#132 / #105.
+          {
+            echo "### Thomson browser image published"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Tag | \`$TAG\` |"
+            echo "| Digest | \`$DIGEST\` |"
+            echo "| Repository | \`$REGISTRY/$ECR_REPOSITORY\` |"
+            echo
+            echo "Pin this digest in continuum-infra."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     cache_dir: Path = Field(default_factory=lambda: Path(tempfile.gettempdir()) / "tsadar-browser-cache")
     cache_max_gb: float = 10.0
 
+    # Where the built SPA lives. Unset in development, where Vite serves it and
+    # proxies /api here; set to /app/static in the deployed image.
+    static_dir: Path | None = None
+
     # The Vite dev server runs on a different origin than uvicorn; in the
     # deployed image the SPA is served same-origin so this stays empty.
     # NoDecode opts out of pydantic-settings' JSON parsing so the validator
