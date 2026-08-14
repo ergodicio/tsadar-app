@@ -1,8 +1,8 @@
 # Thomson analysis browser — frontend
 
 A Vite + React + TypeScript SPA over the read layer in `tsadar_browser/`
-([#29]). This covers the scaffold and the run browser ([#31]); the run detail view
-is [#32] and the compare view is [#33].
+([#29]). This covers the scaffold and run browser ([#31]) and the run detail view
+([#32]); the compare view is [#33].
 
 ## Running it
 
@@ -79,6 +79,43 @@ it is displayed but never used to filter.
 
 **`Radius (\mum)` is a literal LaTeX fragment** in tsadar's stored axis labels, so
 `lib/format.ts` renders it as `µm` rather than showing the backslash.
+
+## The run detail view
+
+Layout is chosen from the capability probe (`GET /api/runs/{id}/datasets`) rather
+than guessed, so a run that cannot be served interactively gets the plot gallery
+with the backend's own explanation of why. An angular run is out of scope by
+design, not broken, and the page says so instead of showing an error — and it is
+never blank.
+
+The spectrogram, lineout scrubber and profiles panels are linked through a single
+lineout index that lives in the URL, so a link can point at one specific lineout
+of one specific run. Clicking a spectrogram column, dragging the scrubber, or
+clicking a profile point all move the same marker.
+
+**Plotly is only touched in `components/Plot.tsx`.** Two reasons: it is loaded
+with a dynamic import so the run browser never pays for a charting library it
+does not use (the main bundle stays ~118 KB gzipped while Plotly is a separate
+~460 KB chunk fetched on the detail page), and panels can mock that one component
+under test. We use the **cartesian** bundle rather than the full one — it carries
+heatmap and scatter, everything these panels draw, at roughly a third the size.
+
+**There is no metric named `loss`.** The loss panel picks from what the run
+actually logged (`epoch loss`, `overall loss`, `min loss`, `batch loss` — names
+with spaces), preferring a per-step key because `overall loss` is usually a single
+summary point. Requesting a fixed `loss` key would 404 on every run.
+
+**The config diff is conditional, because the two ways of running record config
+differently.** App-queued runs log a single merged `config.yaml`, so there is
+nothing to diff and the control is disabled with an explanation. NERSC-queued runs
+log `defaults.yaml` *and* `inputs.yaml`, which diff to answer "what did this run
+actually change?" — shown changed-keys-only by default. The merged tree, rebuilt
+from logged params by the backend, is always available either way.
+
+**The gallery is always shown, not only as a fallback.** Even a fully interactive
+run has images the slicing API cannot reproduce: the distribution-function
+contours, the error histogram, and the lineout plots that *do* include IRF and
+noise components — which the netCDF datasets do not carry.
 
 ## Testing notes
 
