@@ -1,12 +1,112 @@
 # Thomson analysis browser — backend
 
-A read-only FastAPI layer over the MLflow tracking server. MLflow stays the
-source of truth: this service owns no database and never writes to it. Runs are
-immutable once terminal, so fetched artifacts are cached on disk indefinitely
-and evicted only to stay under a size cap.
+A read-only FastAPI layer over the MLflow tracking server, **specialised to
+Thomson scattering analysis**: the tracking server is shared with every other
+Ergodic project, and this browser shows only the ~9% of it that is Thomson (see
+the next section). MLflow stays the source of truth: this service owns no
+database and never writes to it. Runs are immutable once terminal, so fetched
+artifacts are cached on disk indefinitely and evicted only to stay under a size
+cap; artifact bytes are read straight from S3 rather than through MLflow.
 
 Tracking issue: [#37]. This document covers [#29]; the netCDF slicing endpoints
 that render interactive plots are [#30].
+
+## Scope: Thomson runs only
+
+The tracking server is shared by every Ergodic project. It currently has **386
+active experiments, of which 35 hold Thomson runs**; the rest are ADEPT and
+friends (`lagradept-*`, `vp-turbulence`, `vlasov*`, `tpd-*`, `osiris_*`,
+`warpx-*`). That is not a cosmetic problem: the **1500 most recently started runs
+on the server contain zero Thomson runs**, so an unscoped browser opens on a page
+of Vlasov runs and never shows a shot day at all. Every run query is therefore
+restricted to Thomson experiments (`tsadar_browser/thomson.py`).
+
+Scoping is at the **experiment** level, chosen over the two obvious alternatives
+after measuring both against the live server:
+
+**Per-run param matching does not work.** The natural marker is
+`params."data.shotnum"`, present in all four of tsadar's current
+`configs/*/defaults.yaml` and on 4700 runs. But 345 runs in
+`inverse-thomson-scattering` predate that config layout and carry one of several
+older schemas — a `D.*` deck with flat `parameters.amp1.*`, and an older fully
+flat deck of `Te` / `Ti` / `specCurvature` / `fitprops` — and **no single param
+key covers all of them**. Nor can the union be expressed as one query, because
+MLflow's filter grammar has **no `OR`**: the server rejects
+`a != x OR b != y` with `INVALID_PARAMETER_VALUE`. Filtering runs on
+`data.shotnum` would silently drop 345 genuine Thomson runs, which is precisely
+the failure this document already refuses for `spectype` below. Note the
+consistency: the browser filters on **which experiment a run is in**, never on a
+per-run value that can disagree with reality.
+
+**A second database is not needed, and neither is an export pipeline.** Thomson
+and non-Thomson experiments are **disjoint** — no experiment mixes them — so the
+whole filter reduces to a set of experiment ids passed to `search_runs`, which
+MLflow takes natively. Cursor pagination, filter strings and sort keys keep
+working untouched, MLflow stays the source of truth, and queries get *faster*
+because 35 experiments are scanned rather than 386.
+
+Every run inside a Thomson experiment is listed, including ones that logged no
+params at all (a fit that died before `log_mlflow`) and the legacy-schema runs
+above. A crashed run is a diagnostic, not noise.
+
+### How the set is known
+
+In priority order:
+
+1. `THOMSON_EXPERIMENTS` — an explicit operator allowlist. Set it and discovery
+   never runs.
+2. Otherwise the baked-in `SEED_EXPERIMENTS` snapshot, replaced by background
+   discovery once it completes.
+
+Either way `THOMSON_EXPERIMENTS_EXTRA` is added and `THOMSON_EXPERIMENTS_EXCLUDE`
+removed, so a verdict can be corrected without a deploy.
+
+Discovery runs one paged `search_runs` per marker key across all active
+experiments and collects the experiment ids that come back: 8 requests, ~50
+seconds. That is far too slow for a request, hence the seed — a cold container
+must be correct on its first request rather than blocking or showing everything.
+**The seed is a snapshot, not a list to maintain**: background discovery
+supersedes it within `THOMSON_REGISTRY_TTL_S`, which is what makes a new shot-day
+experiment appear on its own. A stale seed entry is harmless, since a name that
+no longer exists simply does not resolve to an id.
+
+Resolution is by **name**, not id: ids are server-specific, names are what a
+physicist and an operator both recognise.
+
+A failed discovery **keeps the previous answer** rather than widening back out —
+falling open to "everything" on a blip would turn a transient error into a page
+of Vlasov runs. The one case that does fail open is a scope resolving to *no*
+experiments at all (an unrecognised tracking server, or an exclude list that
+removed everything): a browser that 404s every run because discovery failed is
+worse than one that shows too much and says so. `/api/health` reports that as
+`thomson.scoped: false`, and the run browser shows it as a warning rather than
+letting the result look intended.
+
+### What is refused
+
+| Request | Answer |
+| --- | --- |
+| `/api/experiments` | Thomson experiments only — the picker must not offer 350 ADEPT experiments |
+| `/api/runs?experiment=<non-Thomson>` | 404, `reason: not_thomson` |
+| `/api/runs/<non-Thomson run>` | 404, `reason: not_thomson` |
+| `/api/runs/<non-Thomson run>/artifacts/...` | 404, `reason: not_thomson` |
+
+404 rather than 403: the resource exists upstream but not in *this* browser. The
+body nests under `detail` exactly like the dataset endpoints', so a client reads
+`err.detail.reason` either way. Contrast the neighbouring **400** for an
+experiment that does not exist *anywhere* — a name nothing matches is a bad query
+value, whereas a real experiment holding another project's runs is a resource
+this browser does not serve.
+
+Scope is enforced on the artifact route too, not only on run detail: otherwise a
+non-Thomson run's bytes stay reachable by URL. It costs no extra round trip,
+because one `get_run` already serves the scope check, the terminal-status check
+that decides cacheability, and the `artifact_uri`.
+
+One deliberate hole: a run carrying a Thomson marker is admitted even from an
+experiment the registry has not classified yet. A shot day created since the last
+discovery pass would otherwise 404 for up to a full TTL, which reads as data loss
+rather than as a stale index.
 
 ## Scope: 1D Thomson, not angular
 
@@ -43,6 +143,8 @@ fragment from `load_ts_data.py`; it needs handling before display.
 For the same reason, no `spectype` **filter** is offered on `/api/runs`: filtering
 on a value that can disagree with reality would quietly drop runs. The field is
 returned for display, and type is confirmed from artifacts on the detail path.
+(The Thomson scoping above is not an exception to this: it filters on which
+*experiment* a run belongs to, never on a logged per-run value.)
 
 ## Running it locally
 
@@ -75,6 +177,11 @@ All configuration is environment variables (a `.env` file also works).
 | `MLFLOW_TRACKING_PASSWORD` | — | Basic auth password |
 | `CACHE_DIR` | `$TMPDIR/tsadar-browser-cache` | Artifact cache root |
 | `CACHE_MAX_GB` | `10` | Cache size cap; LRU eviction above it |
+| `ARTIFACT_S3_DIRECT` | `true` | Read artifact bytes with boto3 instead of through MLflow |
+| `THOMSON_EXPERIMENTS` | unset | Explicit experiment allowlist; disables discovery |
+| `THOMSON_EXPERIMENTS_EXTRA` | unset | Experiments to add to whatever was discovered |
+| `THOMSON_EXPERIMENTS_EXCLUDE` | unset | Experiments to remove |
+| `THOMSON_REGISTRY_TTL_S` | `3600` | How long a discovery result is trusted |
 | `CORS_ORIGINS` | `localhost:5173` | Vite dev origins; comma-separated, empty disables CORS |
 | `STATIC_DIR` | unset | Built SPA to serve alongside `/api`; unset in development |
 | `MAX_PAGE_SIZE` | `200` | Ceiling on `page_size` |
@@ -98,8 +205,8 @@ defaults above.
 
 | Endpoint | Notes |
 | --- | --- |
-| `GET /api/health` | Liveness plus MLflow reachability and cache stats |
-| `GET /api/experiments` | Active experiments |
+| `GET /api/health` | Liveness plus MLflow reachability, cache stats, and the Thomson scope |
+| `GET /api/experiments` | Active **Thomson** experiments |
 | `GET /api/runs` | Filter, sort, paginate; see below |
 | `GET /api/runs/{run_id}` | Config tree, tags, metric summaries, artifact listing, manifest |
 | `GET /api/runs/{run_id}/metrics/{key}` | Full metric history for loss curves |
@@ -179,6 +286,38 @@ the tree is ill-defined, so `config` is left empty and
 **Artifact paths are untrusted.** A `..` segment is rejected outright; the
 resolved path is also checked to be inside the cache root. Absolute-looking paths
 are relativized rather than rejected — harmless once the leading slash is gone.
+
+## Artifact bytes come straight from S3
+
+Artifacts live in `s3://public-ergodic-continuum/<experiment_id>/<run_id>/artifacts`
+and the run's own `artifact_uri` already names that prefix, so once the run is in
+hand MLflow has nothing left to contribute. `tsadar_browser/s3.py` fetches the
+object with boto3 directly, which takes a tracking-server round trip (and its
+retry/backoff budget) off **every** artifact read — the lineout scrubber does one
+per step — and means a slow or degraded tracking server no longer stalls plots
+whose bytes are sitting in S3. Measured on a 1.2 MB `ele_fit_and_data.nc`:
+**2.26 s through MLflow, 1.54 s direct** (median of four cold fetches).
+
+Credentials are ambient — an AWS profile locally, the task role in deployment —
+exactly as they were when mlflow's own `S3ArtifactRepository` read them, so
+deployment needs no new permission.
+
+The MLflow client is still the fallback for artifact stores that are not S3: a
+local `file://` `mlruns` directory in development, and the fake the tests run
+against. Selection is by URI scheme, so nothing has to be configured;
+`ARTIFACT_S3_DIRECT=false` forces everything back through MLflow if S3 access ever
+turns out to be the narrower permission.
+
+Error mapping is load-bearing and tested: S3 codes `404` / `NoSuchKey` /
+`NoSuchBucket` / `NotFound` become `FileNotFoundError` and therefore a **404**,
+while anything else (`AccessDenied`, `SlowDown`, a bad region) becomes `OSError`
+and a **502**. Collapsing `AccessDenied` into a 404 would present a credentials
+misconfiguration as a run with no artifacts, which is about the hardest thing to
+debug from the outside.
+
+The boto3 client is built on first use, not at construction: the app builds a
+gateway before any request arrives, and `/api/health` has to answer on a task
+with no AWS access at all.
 
 ## Caching
 

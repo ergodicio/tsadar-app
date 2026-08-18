@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     cache_dir: Path = Field(default_factory=lambda: Path(tempfile.gettempdir()) / "tsadar-browser-cache")
     cache_max_gb: float = 10.0
 
+    # Fetch artifact bytes straight from S3 with boto3 instead of through
+    # MLflow's artifact repository, which saves a tracking-server round trip on
+    # every artifact read (see tsadar_browser/s3.py). Only applies when the run's
+    # artifact store actually is S3; a local file:// mlruns always goes through
+    # the MLflow client. Set false to force everything back through MLflow if S3
+    # credentials ever turn out to be the narrower permission.
+    artifact_s3_direct: bool = True
+
     # Where the built SPA lives. Unset in development, where Vite serves it and
     # proxies /api here; set to /app/static in the deployed image.
     static_dir: Path | None = None
@@ -40,12 +48,47 @@ class Settings(BaseSettings):
     # below can accept the comma-separated form a task definition would use.
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
+    # Which MLflow experiments hold Thomson runs. The tracking server is shared
+    # with every other Ergodic project, so without scoping the browser lists
+    # hundreds of ADEPT experiments' runs -- see tsadar_browser/thomson.py.
+    #
+    # `thomson_experiments` is an explicit allowlist that disables discovery
+    # entirely; the other two adjust whatever discovery (or the seed) produced,
+    # so an operator can correct a verdict without a deploy. All three accept the
+    # comma-separated form a task definition would use.
+    thomson_experiments: Annotated[list[str], NoDecode] = []
+    thomson_experiments_extra: Annotated[list[str], NoDecode] = []
+    thomson_experiments_exclude: Annotated[list[str], NoDecode] = []
+
+    # How long a discovery result is trusted. Discovery costs ~50s against the
+    # production server, so it runs in the background and this bounds how long a
+    # newly created shot-day experiment stays invisible.
+    thomson_registry_ttl_s: float = 3600.0
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:
         """Accept ``a,b`` as well as a real list, and treat empty as 'no CORS'."""
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @field_validator(
+        "thomson_experiments",
+        "thomson_experiments_extra",
+        "thomson_experiments_exclude",
+        mode="before",
+    )
+    @classmethod
+    def _split_experiments(cls, value: object) -> object:
+        """Accept ``a,b`` as well as a real list.
+
+        Experiment names are not quoted here and must not be: they are matched
+        against MLflow's own names by equality, never interpolated into a filter
+        string.
+        """
+        if isinstance(value, str):
+            return [name.strip() for name in value.split(",") if name.strip()]
         return value
 
     # search_runs page size ceiling. MLflow itself caps at 50000, but the run

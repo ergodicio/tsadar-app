@@ -46,8 +46,21 @@ body {
 }
 
 .browser__hint {
-  margin: 0.2rem 0 1rem;
+  margin: 0.2rem 0 0.35rem;
   color: var(--muted);
+}
+
+/* What the browser is scoped to. Quiet by default -- it is reassurance, not a
+   notice -- but loud when scoping failed and other projects' runs may be mixed in. */
+.browser__scope {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.browser__scope--warning {
+  color: var(--danger);
+  font-weight: 500;
 }
 
 /* -- filters -- */

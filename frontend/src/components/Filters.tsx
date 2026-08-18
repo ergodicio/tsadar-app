@@ -34,7 +34,9 @@ export function Filters({ filters, experiments, onChange, onClear, disabled }: F
           onChange={(event) => set("experiment", event.target.value)}
           disabled={disabled}
         >
-          <option value="">All</option>
+          {/* "All Thomson" rather than "All": the list is already restricted to
+              Thomson experiments, and a bare "All" would imply the whole server. */}
+          <option value="">All Thomson</option>
           {experiments.map((experiment) => (
             <option key={experiment.experiment_id} value={experiment.name}>
               {experiment.name}

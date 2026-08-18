@@ -174,7 +174,17 @@ class DatasetService:
 
         Pass ``paths`` when a full artifact listing is already in hand (as
         :meth:`describe` has); otherwise only ``binary/`` is listed.
+
+        This is also where the dataset endpoints enforce Thomson scope. It is the
+        one call every one of them makes first, which is why the check lives here
+        rather than in each entry point: the dataset routes reject a run for
+        having no datasets *before* they would ever fetch bytes, so relying on
+        the guard inside ``gateway.download_artifact`` left a non-Thomson run id
+        answering ``dataset_missing`` -- and, on the probe, a plain 200 -- while
+        ``/api/runs/{id}`` beside it returned ``not_thomson``.
         """
+        self.gateway.require_thomson(run_id)
+
         paths = self._binary_paths(run_id) if paths is None else paths
 
         present = [which for which, path in ONE_D_DATASETS.items() if path in paths]
@@ -189,6 +199,8 @@ class DatasetService:
 
         #32 calls this to choose a layout, so it must answer for every run --
         including old ones and angular ones -- rather than erroring.
+
+        "Every run" means every *Thomson* run; :meth:`classify` enforces that.
         """
         paths = self._artifact_paths(run_id)
         kind, present = self.classify(run_id, paths)

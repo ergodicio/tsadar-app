@@ -29,12 +29,19 @@ from .schemas import (
     RunPage,
     RunSummary,
 )
+from .s3 import S3ArtifactReader, parse_s3_uri
 from .settings import Settings
+from .thomson import ThomsonRegistry, ThomsonScope, experiment_is_thomson
 
 logger = logging.getLogger(__name__)
 
 #: MLflow statuses after which a run's artifacts can never change.
 TERMINAL_STATUSES = frozenset({"FINISHED", "FAILED", "KILLED"})
+
+#: How long the active-experiment list is reused before re-listing. Experiments
+#: are created a few times a week; Thomson scope is checked on every run and
+#: artifact request, so this keeps the check off the wire.
+EXPERIMENT_LIST_TTL_S = 30.0
 
 #: Param key holding the shot number. Flattened with a dot reducer by
 #: ``tsadar.utils.misc.log_mlflow``, so ``data.shotnum`` in the config tree.
@@ -114,19 +121,68 @@ def _coerce_param(raw: str) -> Any:
         return raw
 
 
+class NotThomson(ValueError):
+    """The caller asked for an experiment or run that is not Thomson analysis."""
+
+
 class MlflowGateway:
-    def __init__(self, settings: Settings, cache: ArtifactCache, client: MlflowClient | None = None):
+    def __init__(
+        self,
+        settings: Settings,
+        cache: ArtifactCache,
+        client: MlflowClient | None = None,
+        registry: ThomsonRegistry | None = None,
+        s3_reader: S3ArtifactReader | None = None,
+    ):
         self.settings = settings
         self.cache = cache
         self._client = client or MlflowClient(tracking_uri=settings.mlflow_tracking_uri)
         self._experiment_names: dict[str, str] = {}
+        self._experiments_cache: tuple[float, list[Any]] | None = None
         self._probe: tuple[float, str | None] | None = None
+        self.thomson = registry or ThomsonRegistry(client=self._client, settings=settings)
+        self._s3 = s3_reader or S3ArtifactReader()
 
     # -- experiments ----------------------------------------------------------
 
-    def list_experiments(self) -> list[Experiment]:
-        experiments = self._client.search_experiments(view_type=ViewType.ACTIVE_ONLY)
+    def _all_experiments(self) -> list[Any]:
+        """Every active experiment, Thomson or not, with the name cache refreshed.
+
+        The unfiltered list is what scope resolution needs (it maps Thomson
+        *names* onto ids) and what row rendering needs, so it is fetched once and
+        narrowed by the callers that want only Thomson experiments.
+
+        Memoized for :data:`EXPERIMENT_LIST_TTL_S` because scope is now checked on
+        the artifact path too, which the lineout scrubber hits once per step; a
+        round trip per step to re-list 386 experiments that change weekly would be
+        the whole cost of the guard. A new experiment appears one TTL late, which
+        is nothing against the registry's own hour.
+        """
+        now = time.monotonic()
+        if self._experiments_cache is not None:
+            fetched_at, cached = self._experiments_cache
+            if now - fetched_at < EXPERIMENT_LIST_TTL_S:
+                return cached
+
+        experiments = list(self._client.search_experiments(view_type=ViewType.ACTIVE_ONLY))
         self._experiment_names = {exp.experiment_id: exp.name for exp in experiments}
+        self._experiments_cache = (now, experiments)
+        return experiments
+
+    def thomson_scope(self) -> ThomsonScope:
+        """The current Thomson experiment scope, resolved against the live list."""
+        return self.thomson.resolve(self._all_experiments())
+
+    def list_experiments(self) -> list[Experiment]:
+        """Only experiments holding Thomson runs.
+
+        This is a Thomson browser, so the experiment picker must not offer the
+        350-odd ADEPT experiments that share this tracking server. When the scope
+        cannot be resolved at all the full list is returned rather than an empty
+        one -- ``/api/health`` reports that as ``scoped: false``.
+        """
+        experiments = self._all_experiments()
+        scope = self.thomson.resolve(experiments)
         return [
             Experiment(
                 experiment_id=exp.experiment_id,
@@ -138,6 +194,7 @@ class MlflowGateway:
                 tags=dict(exp.tags or {}),
             )
             for exp in experiments
+            if scope.allows(exp.experiment_id)
         ]
 
     def _experiment_name(self, experiment_id: str) -> str | None:
@@ -153,20 +210,41 @@ class MlflowGateway:
     def _resolve_experiment_ids(self, experiment: str | None) -> list[str]:
         """Resolve an experiment name (or id) to the ids to search.
 
-        With no experiment given, every active experiment is searched -- MLflow's
-        client API has no 'all experiments' mode.
-        """
-        if experiment:
-            found = self._client.get_experiment_by_name(experiment)
-            if found is not None:
-                return [found.experiment_id]
-            # Tolerate an id being passed where a name is expected.
-            try:
-                return [self._client.get_experiment(experiment).experiment_id]
-            except Exception as exc:  # noqa: BLE001
-                raise InvalidQuery(f"unknown experiment: {experiment!r}") from exc
+        With no experiment given this searches **every Thomson experiment** rather
+        than every active one: the tracking server is shared, and the runs a
+        physicist wants are a ~9% slice of it (see :mod:`.thomson`). MLflow takes
+        the id list natively, so cursor pagination, filters and sorting are
+        unaffected -- and scanning 35 experiments instead of 386 is faster.
 
-        return [exp.experiment_id for exp in self._client.search_experiments(view_type=ViewType.ACTIVE_ONLY)]
+        A named experiment that is not Thomson is rejected rather than searched,
+        so a stale bookmark says why instead of quietly returning ADEPT runs.
+        """
+        experiments = self._all_experiments()
+        scope = self.thomson.resolve(experiments)
+
+        if experiment:
+            found = next((exp for exp in experiments if exp.name == experiment), None)
+            if found is None:
+                # Tolerate an id being passed where a name is expected.
+                found = next((exp for exp in experiments if exp.experiment_id == experiment), None)
+            if found is None:
+                try:
+                    found = self._client.get_experiment(experiment)
+                except Exception as exc:  # noqa: BLE001
+                    raise InvalidQuery(f"unknown experiment: {experiment!r}") from exc
+            if not scope.allows(found.experiment_id):
+                raise NotThomson(
+                    f"{experiment!r} is not a Thomson analysis experiment. This browser covers "
+                    f"Thomson scattering runs only; {found.name!r} holds runs from another project."
+                )
+            return [found.experiment_id]
+
+        if not scope.scoped:
+            # Scope could not be resolved; searching everything is the honest
+            # fallback and /api/health reports it. See ThomsonScope.allows.
+            return [exp.experiment_id for exp in experiments]
+
+        return sorted(scope.experiment_ids)
 
     # -- runs -----------------------------------------------------------------
 
@@ -273,8 +351,42 @@ class MlflowGateway:
             user=tags.get("mlflow.user"),
         )
 
+    def _require_thomson_run(self, run: Any) -> None:
+        """Reject a run that is not Thomson analysis.
+
+        Scope is by experiment, but a run carrying a Thomson marker is admitted
+        even from an experiment the registry has not classified yet: a shot day
+        created since the last discovery pass would otherwise 404 for up to one
+        TTL, which reads as data loss rather than as a stale index.
+        """
+        scope = self.thomson.resolve(self._all_experiments())
+        if scope.allows(run.info.experiment_id):
+            return
+        if experiment_is_thomson(dict(run.data.params or {})):
+            logger.info(
+                "run %s is in unclassified experiment %s but carries a Thomson marker; allowing",
+                run.info.run_id,
+                run.info.experiment_id,
+            )
+            return
+        name = self._experiment_name(run.info.experiment_id) or run.info.experiment_id
+        raise NotThomson(
+            f"run {run.info.run_id} is not a Thomson analysis run. This browser covers Thomson "
+            f"scattering runs only; it belongs to {name!r}, which holds runs from another project."
+        )
+
+    def require_thomson(self, run_id: str) -> None:
+        """Raise :class:`NotThomson` unless this run is in scope.
+
+        For paths that reach a run without going through :meth:`get_run` or
+        :meth:`download_artifact` -- notably the dataset capability probe, which
+        answers from an artifact *listing* and so never fetches bytes.
+        """
+        self._require_thomson_run(self._client.get_run(run_id))
+
     def get_run(self, run_id: str) -> RunDetail:
         run = self._client.get_run(run_id)
+        self._require_thomson_run(run)
         summary = self._summarize(run)
         params = dict(run.data.params or {})
 
@@ -354,22 +466,50 @@ class MlflowGateway:
             logger.debug("no readable manifest.json for run %s: %s", run_id, exc)
             return None
 
-    def is_terminal(self, run_id: str) -> bool:
-        try:
-            return self._client.get_run(run_id).info.status in TERMINAL_STATUSES
-        except Exception:  # noqa: BLE001
-            return False
-
     def download_artifact(self, run_id: str, artifact_path: str, cacheable: bool | None = None) -> Path:
         """Return a local path to an artifact, using the disk cache.
 
-        The frontend never sees S3: this is the only route to artifact bytes.
+        The frontend never sees S3: this is the only route to artifact bytes,
+        which is also why scope is enforced here and not only on the detail
+        route -- otherwise a non-Thomson run's artifacts stay reachable by URL.
+
+        One ``get_run`` serves three purposes -- the scope check, the
+        terminal-status check that decides cacheability, and the ``artifact_uri``
+        that locates the bytes in S3 -- so none of them costs an extra round trip.
+
+        Bytes come **straight from S3** rather than through MLflow's artifact
+        repository whenever the store is S3; see :mod:`.s3` for why. A non-S3
+        store (a local ``file://`` mlruns) falls back to the MLflow client.
         """
         safe_path = sanitize_artifact_path(artifact_path)
+
+        run = None
+        try:
+            run = self._client.get_run(run_id)
+        except Exception:  # noqa: BLE001
+            # An unreadable run leaves scope unverified. Tolerated rather than
+            # refused, matching what this method did before scoping existed: the
+            # fetch below has no artifact_uri and no cacheability either, so it
+            # falls through to MLflow and fails there. The one thing that can
+            # still be served is an artifact already in the cache during an
+            # MLflow outage, which is acceptable -- Thomson scope is a product
+            # boundary over a public bucket, not an access control.
+            logger.warning(
+                "could not read run %s before fetching %s; scope unverified", run_id, safe_path
+            )
+        else:
+            self._require_thomson_run(run)
+            if cacheable is None:
+                cacheable = run.info.status in TERMINAL_STATUSES
         if cacheable is None:
-            cacheable = self.is_terminal(run_id)
+            cacheable = False
+
+        artifact_uri = getattr(run.info, "artifact_uri", None) if run is not None else None
+        s3_uri = parse_s3_uri(artifact_uri) if self.settings.artifact_s3_direct else None
 
         def download(scratch: Path) -> Path:
+            if s3_uri is not None:
+                return self._s3.download(artifact_uri, safe_path, scratch)
             local = self._client.download_artifacts(run_id, safe_path, str(scratch))
             return Path(local)
 

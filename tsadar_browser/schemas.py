@@ -19,12 +19,43 @@ class CacheStats(BaseModel):
     max_bytes: int
 
 
+class ThomsonScopeStatus(BaseModel):
+    """Which experiments the browser is restricted to, and how it decided.
+
+    Surfaced because the restriction is otherwise invisible: a physicist who
+    cannot find a run needs to be able to tell 'that run does not exist' from
+    'this browser is not looking at its experiment'.
+    """
+
+    scoped: bool = Field(
+        description=(
+            "Whether run queries are restricted to Thomson experiments. False means the scope "
+            "could not be resolved (an unrecognised tracking server, or an exclude list that "
+            "removed everything) and every experiment is being searched."
+        )
+    )
+    experiment_count: int = Field(description="How many Thomson experiments the scope resolved to")
+    experiments: list[str] = Field(default_factory=list, description="Their names, sorted")
+    source: str = Field(
+        description=(
+            "'configured' (THOMSON_EXPERIMENTS allowlist), 'discovered' (a completed marker scan), "
+            "or 'seed' (the baked-in snapshot, still awaiting the first scan)"
+        )
+    )
+    stale: bool = Field(description="Whether a background rediscovery is due or in flight")
+    error: str | None = Field(default=None, description="Why the last discovery attempt failed, if it did")
+
+
 class HealthResponse(BaseModel):
     status: str = Field(description="'ok' when MLflow is reachable, 'degraded' otherwise")
     mlflow_tracking_uri: str
     mlflow_reachable: bool
     mlflow_error: str | None = Field(default=None, description="Why the tracking server could not be reached")
     cache: CacheStats
+    thomson: ThomsonScopeStatus | None = Field(
+        default=None,
+        description="Thomson experiment scope; null when MLflow is unreachable and it cannot be resolved",
+    )
 
 
 class Experiment(BaseModel):

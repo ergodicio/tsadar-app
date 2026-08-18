@@ -18,6 +18,7 @@ from tsadar_browser.app import create_app
 from tsadar_browser.cache import ArtifactCache
 from tsadar_browser.deps import get_gateway
 from tsadar_browser.gateway import MlflowGateway
+from tsadar_browser.s3 import S3ArtifactReader
 from tsadar_browser.settings import Settings
 
 
@@ -107,6 +108,9 @@ class FakeMlflowClient:
         self.artifact_files = artifact_files or {}
         self.fail = fail
         self.search_calls: list[dict] = []
+        # Records MLflow-side artifact fetches, so a test can prove a download
+        # went straight to S3 rather than falling back through the tracking server.
+        self.download_calls: list[tuple[str, str]] = []
         self.metric_history: dict[tuple[str, str], list] = {}
 
     def _guard(self):
@@ -158,6 +162,7 @@ class FakeMlflowClient:
 
     def download_artifacts(self, run_id, path, dst_path):
         self._guard()
+        self.download_calls.append((run_id, path))
         payload = self.artifact_files.get(run_id, {}).get(path)
         if payload is None:
             raise missing(f"no artifact {path}")
@@ -171,6 +176,55 @@ def file_info(path, is_dir=False, file_size=None):
     return SimpleNamespace(path=path, is_dir=is_dir, file_size=file_size)
 
 
+class FakeClientError(Exception):
+    """A botocore ``ClientError`` lookalike.
+
+    ``S3ArtifactReader._translate`` matches on ``response["Error"]["Code"]``
+    rather than the exception class, precisely because botocore raises the same
+    class for a missing key and for access denied. So the fake only has to carry
+    that shape.
+    """
+
+    def __init__(self, code: str, message: str = "boom"):
+        super().__init__(f"{code}: {message}")
+        self.response = {"Error": {"Code": code, "Message": message}}
+
+
+class FakeS3Client:
+    """Serves objects out of ``FakeMlflowClient.artifact_files``.
+
+    Injected as the *boto3 client* rather than replacing S3ArtifactReader, so the
+    real key construction and error translation run in tests -- that is the code
+    production takes, since every run's artifact_uri on this tracking server is
+    an ``s3://`` URI.
+    """
+
+    def __init__(self, fake_client: "FakeMlflowClient"):
+        self.fake_client = fake_client
+        self.downloads: list[tuple[str, str]] = []
+        self.error_code: str | None = None
+
+    def download_file(self, bucket, key, target):
+        self.downloads.append((bucket, key))
+        if self.error_code:
+            raise FakeClientError(self.error_code)
+
+        # Keys look like "<experiment_id>/<run_id>/artifacts/<artifact_path>",
+        # which is what the fake run's artifact_uri prefix plus object_key builds.
+        marker = "/artifacts/"
+        if marker not in key:
+            raise FakeClientError("NoSuchKey", key)
+        prefix, _, artifact_path = key.partition(marker)
+        run_id = prefix.split("/")[-1]
+
+        payload = self.fake_client.artifact_files.get(run_id, {}).get(artifact_path)
+        if payload is None:
+            raise FakeClientError("NoSuchKey", key)
+
+        Path(target).parent.mkdir(parents=True, exist_ok=True)
+        Path(target).write_bytes(payload)
+
+
 @pytest.fixture
 def settings(tmp_path) -> Settings:
     return Settings(
@@ -178,6 +232,14 @@ def settings(tmp_path) -> Settings:
         cache_dir=tmp_path / "cache",
         cache_max_gb=0.001,
         cors_origins=[],
+        # Pin the Thomson scope to the fake's one experiment. An explicit
+        # allowlist means ThomsonRegistry never starts a background discovery,
+        # which matters for more than speed: discovery issues its own
+        # search_runs calls, and a thread landing mid-test would both append to
+        # FakeMlflowClient.search_calls (breaking any assertion on the *last*
+        # call) and make the scope depend on timing. Discovery itself is tested
+        # directly in test_thomson.py against a purpose-built fake.
+        thomson_experiments=["inverse-thomson-scattering"],
     )
 
 
@@ -192,8 +254,18 @@ def fake_client() -> FakeMlflowClient:
 
 
 @pytest.fixture
-def gateway(settings, cache, fake_client) -> MlflowGateway:
-    return MlflowGateway(settings=settings, cache=cache, client=fake_client)
+def fake_s3(fake_client) -> FakeS3Client:
+    return FakeS3Client(fake_client)
+
+
+@pytest.fixture
+def gateway(settings, cache, fake_client, fake_s3) -> MlflowGateway:
+    return MlflowGateway(
+        settings=settings,
+        cache=cache,
+        client=fake_client,
+        s3_reader=S3ArtifactReader(client=fake_s3),
+    )
 
 
 @pytest.fixture
