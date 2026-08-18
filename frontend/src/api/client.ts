@@ -19,6 +19,9 @@ export type RunPage = Json<"/api/runs", "get">;
 export type RunSummary = RunPage["runs"][number];
 export type RunDetail = Json<"/api/runs/{run_id}", "get">;
 export type Health = Json<"/api/health", "get">;
+/** Which experiments the browser is scoped to. Null in `Health` when MLflow is
+ *  unreachable and the scope could not be resolved at all. */
+export type ThomsonScope = NonNullable<Health["thomson"]>;
 export type ArtifactEntry = RunDetail["artifacts"][number];
 export type MetricHistory = Json<"/api/runs/{run_id}/metrics/{key}", "get">;
 

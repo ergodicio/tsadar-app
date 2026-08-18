@@ -20,7 +20,8 @@ from ..schemas import (
     Profiles,
     Spectrogram,
 )
-from .runs import _reraise
+from ..gateway import NotThomson
+from .runs import _not_thomson, _reraise
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,8 @@ def get_availability(
     """
     try:
         return service.describe(run_id)
+    except NotThomson as exc:
+        raise _not_thomson(exc) from exc
     except MlflowException as exc:
         raise _reraise(exc, "run") from exc
 
@@ -88,8 +91,12 @@ def get_spectrogram(
 ) -> Spectrogram:
     try:
         return service.spectrogram(run_id, which=which, field=field, max_px=max_px)
+    except NotThomson as exc:
+        raise _not_thomson(exc) from exc
     except DatasetUnavailable as exc:
         raise _unavailable(exc) from exc
+    except NotThomson as exc:
+        raise _not_thomson(exc) from exc
     except MlflowException as exc:
         raise _reraise(exc, "run") from exc
 
@@ -113,8 +120,12 @@ def get_lineout(
     """
     try:
         return service.lineout(run_id, which=which, index=index)
+    except NotThomson as exc:
+        raise _not_thomson(exc) from exc
     except DatasetUnavailable as exc:
         raise _unavailable(exc) from exc
+    except NotThomson as exc:
+        raise _not_thomson(exc) from exc
     except MlflowException as exc:
         raise _reraise(exc, "run") from exc
 
@@ -130,7 +141,11 @@ def get_profiles(
 ) -> Profiles:
     try:
         return service.profiles(run_id)
+    except NotThomson as exc:
+        raise _not_thomson(exc) from exc
     except DatasetUnavailable as exc:
         raise _unavailable(exc) from exc
+    except NotThomson as exc:
+        raise _not_thomson(exc) from exc
     except MlflowException as exc:
         raise _reraise(exc, "run") from exc

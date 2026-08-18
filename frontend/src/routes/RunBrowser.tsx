@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
-import { api, type Experiment } from "../api/client";
+import { api, type Experiment, type ThomsonScope } from "../api/client";
 import { Filters } from "../components/Filters";
 import { RunTable } from "../components/RunTable";
 import { EmptyState, ErrorState, LoadingState } from "../components/StateViews";
@@ -30,6 +30,7 @@ export function RunBrowser() {
     useRuns(filters);
 
   const [experiments, setExperiments] = useState<Experiment[]>([]);
+  const [scope, setScope] = useState<ThomsonScope | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 
   useEffect(() => {
@@ -40,6 +41,18 @@ export function RunBrowser() {
       // still works, so this is not surfaced as a page error.
       .then(setExperiments)
       .catch(() => setExperiments([]));
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    // The Thomson restriction is otherwise invisible, and invisible filtering is
+    // how someone concludes their run was lost. Health is the only endpoint that
+    // reports it; a failure just leaves the note off.
+    api
+      .health(controller.signal)
+      .then((health) => setScope(health.thomson ?? null))
+      .catch(() => setScope(null));
     return () => controller.abort();
   }, []);
 
@@ -69,10 +82,27 @@ export function RunBrowser() {
   return (
     <section className="browser">
       <header className="browser__header">
-        <h1>Runs</h1>
+        <h1>Thomson runs</h1>
         <p className="browser__hint">
           Filters and sort are in the URL, so this view can be shared as a link.
         </p>
+        {scope?.scoped && (
+          <p className="browser__scope" title={(scope.experiments ?? []).join("\n")}>
+            Showing Thomson scattering analysis runs from {scope.experiment_count} experiment
+            {scope.experiment_count === 1 ? "" : "s"}. Runs from other projects on this tracking
+            server are not listed.
+          </p>
+        )}
+        {scope && !scope.scoped && (
+          // Fail-open: the backend could not work out which experiments are
+          // Thomson, so the table is showing everything. Say so rather than
+          // letting a page of Vlasov runs look like the intended contents.
+          <p className="browser__scope browser__scope--warning" role="alert">
+            Thomson experiments could not be identified
+            {scope.error ? `: ${scope.error}` : ""}. Every experiment on the tracking server is
+            being listed, so runs from other projects may appear.
+          </p>
+        )}
       </header>
 
       <Filters

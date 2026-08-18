@@ -344,6 +344,8 @@ export interface components {
              * @description 'ok' when MLflow is reachable, 'degraded' otherwise
              */
             status: string;
+            /** @description Thomson experiment scope; null when MLflow is unreachable and it cannot be resolved */
+            thomson?: components["schemas"]["ThomsonScopeStatus"] | null;
         };
         /** Lineout */
         Lineout: {
@@ -713,6 +715,46 @@ export interface components {
              * @description Spectral axis name, normally 'Wavelength'
              */
             y_label: string;
+        };
+        /**
+         * ThomsonScopeStatus
+         * @description Which experiments the browser is restricted to, and how it decided.
+         *
+         *     Surfaced because the restriction is otherwise invisible: a physicist who
+         *     cannot find a run needs to be able to tell 'that run does not exist' from
+         *     'this browser is not looking at its experiment'.
+         */
+        ThomsonScopeStatus: {
+            /**
+             * Error
+             * @description Why the last discovery attempt failed, if it did
+             */
+            error?: string | null;
+            /**
+             * Experiment Count
+             * @description How many Thomson experiments the scope resolved to
+             */
+            experiment_count: number;
+            /**
+             * Experiments
+             * @description Their names, sorted
+             */
+            experiments?: string[];
+            /**
+             * Scoped
+             * @description Whether run queries are restricted to Thomson experiments. False means the scope could not be resolved (an unrecognised tracking server, or an exclude list that removed everything) and every experiment is being searched.
+             */
+            scoped: boolean;
+            /**
+             * Source
+             * @description 'configured' (THOMSON_EXPERIMENTS allowlist), 'discovered' (a completed marker scan), or 'seed' (the baked-in snapshot, still awaiting the first scan)
+             */
+            source: string;
+            /**
+             * Stale
+             * @description Whether a background rediscovery is due or in flight
+             */
+            stale: boolean;
         };
         /**
          * UnavailableReason

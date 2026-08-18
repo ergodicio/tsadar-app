@@ -39,12 +39,39 @@ function run(overrides: RunOverrides = {}) {
 
 let calls: string[] = [];
 
-function stubApi(pages: Array<{ runs: unknown[]; next_page_token?: string | null }>) {
+/** The Thomson scope block /api/health reports. The browser fetches it to show
+ *  what it is restricted to, so every fetch stub has to answer it -- otherwise
+ *  that request falls through and consumes a run page. */
+function healthBody(thomson: Record<string, unknown> | null = {
+  scoped: true,
+  experiment_count: 35,
+  experiments: ["shot_day_3_27_24", "inverse-thomson-scattering"],
+  source: "discovered",
+  stale: false,
+  error: null,
+}) {
+  return {
+    status: "ok",
+    mlflow_tracking_uri: "https://continuum.ergodic.io/experiments",
+    mlflow_reachable: true,
+    mlflow_error: null,
+    cache: { directory: "/tmp/cache", entries: 0, bytes: 0, max_bytes: 1 },
+    thomson,
+  };
+}
+
+function stubApi(
+  pages: Array<{ runs: unknown[]; next_page_token?: string | null }>,
+  thomson?: Record<string, unknown> | null,
+) {
   let index = 0;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string) => {
       calls.push(url);
+      if (url.startsWith("/api/health")) {
+        return { ok: true, status: 200, json: async () => healthBody(thomson) };
+      }
       if (url.startsWith("/api/experiments")) {
         return {
           ok: true,
@@ -70,6 +97,9 @@ function stubFailure(status: number, detail: string) {
     "fetch",
     vi.fn(async (url: string) => {
       calls.push(url);
+      if (url.startsWith("/api/health")) {
+        return { ok: true, status: 200, json: async () => healthBody() };
+      }
       if (url.startsWith("/api/experiments")) {
         return { ok: true, status: 200, json: async () => ({ experiments: [] }) };
       }
@@ -227,13 +257,13 @@ describe("honest loading, empty and error states", () => {
   it("distinguishes no-runs-at-all from no-matches", async () => {
     stubApi([{ runs: [] }]);
     const { unmount } = renderBrowser();
-    await waitFor(() => expect(screen.getByText("No runs yet")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("No Thomson runs yet")).toBeInTheDocument());
     unmount();
 
     stubApi([{ runs: [] }]);
     renderBrowser("/runs?shot=999999");
     await waitFor(() =>
-      expect(screen.getByText("No runs match these filters")).toBeInTheDocument(),
+      expect(screen.getByText("No Thomson runs match these filters")).toBeInTheDocument(),
     );
   });
 
@@ -285,5 +315,71 @@ describe("selection for the compare view", () => {
       "href",
       "/compare?runs=run-1,run-2",
     );
+  });
+});
+
+describe("Thomson scope", () => {
+  it("says how many Thomson experiments the table covers", async () => {
+    stubApi([{ runs: [run()] }]);
+    renderBrowser();
+
+    await waitFor(() =>
+      expect(screen.getByText(/Showing Thomson scattering analysis runs from 35 experiments/)).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/Runs from other projects.*are not listed/)).toBeInTheDocument();
+  });
+
+  it("names the experiments in a tooltip rather than on screen", async () => {
+    stubApi([{ runs: [run()] }]);
+    renderBrowser();
+
+    const note = await waitFor(() =>
+      screen.getByText(/Showing Thomson scattering analysis runs/),
+    );
+    expect(note).toHaveAttribute("title", "shot_day_3_27_24\ninverse-thomson-scattering");
+  });
+
+  it("warns loudly when scoping failed, because other projects' runs may be mixed in", async () => {
+    stubApi([{ runs: [run()] }], {
+      scoped: false,
+      experiment_count: 0,
+      experiments: [],
+      source: "seed",
+      stale: true,
+      error: "connection refused",
+    });
+    renderBrowser();
+
+    const alert = await waitFor(() => screen.getByRole("alert"));
+    expect(alert).toHaveTextContent(/Thomson experiments could not be identified/);
+    expect(alert).toHaveTextContent(/connection refused/);
+  });
+
+  it("leaves the note off when health cannot be read at all", async () => {
+    stubApi([{ runs: [run()] }], null);
+    renderBrowser();
+
+    await waitFor(() => expect(screen.getByText("test-run")).toBeInTheDocument());
+    expect(screen.queryByText(/Showing Thomson scattering analysis runs/)).toBeNull();
+    expect(screen.queryByText(/could not be identified/)).toBeNull();
+  });
+
+  it("titles the page as a Thomson browser", async () => {
+    stubApi([{ runs: [run()] }]);
+    renderBrowser();
+
+    // Awaited rather than asserted synchronously: the heading is there
+    // immediately, but the scope fetch resolves afterwards and settling it here
+    // keeps the state update inside the test.
+    await waitFor(() => expect(screen.getByText("test-run")).toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "Thomson runs" })).toBeInTheDocument();
+  });
+
+  it("offers 'All Thomson' rather than 'All' in the experiment filter", async () => {
+    stubApi([{ runs: [run()] }]);
+    renderBrowser();
+
+    await waitFor(() => expect(screen.getByText("test-run")).toBeInTheDocument());
+    expect(screen.getByRole("option", { name: "All Thomson" })).toBeInTheDocument();
   });
 });

@@ -21,7 +21,7 @@ import { LossPanel } from "../components/LossPanel";
 import { ProfilesPanel } from "../components/ProfilesPanel";
 import { RunHeader } from "../components/RunHeader";
 import { SpectrogramPanel } from "../components/SpectrogramPanel";
-import { ErrorState, LoadingState } from "../components/StateViews";
+import { ErrorState, LoadingState, NotThomsonState } from "../components/StateViews";
 
 export function RunDetail() {
   const { runId = "" } = useParams();
@@ -30,11 +30,13 @@ export function RunDetail() {
   const [run, setRun] = useState<RunDetailModel | null>(null);
   const [availability, setAvailability] = useState<DatasetAvailability | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorReason, setErrorReason] = useState<string | null>(null);
   const [reloadCount, setReloadCount] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
     setError(null);
+    setErrorReason(null);
     setRun(null);
     setAvailability(null);
 
@@ -48,6 +50,7 @@ export function RunDetail() {
       .catch((cause: unknown) => {
         if (controller.signal.aborted) return;
         setError(cause instanceof ApiError ? cause.message : "Could not load this run.");
+        setErrorReason(cause instanceof ApiError ? (cause.reason ?? null) : null);
       });
 
     return () => controller.abort();
@@ -89,6 +92,9 @@ export function RunDetail() {
     [setParam],
   );
 
+  // A non-Thomson run is not a failure, so it must not offer "try again": the
+  // answer will not change on a retry.
+  if (error && errorReason === "not_thomson") return <NotThomsonState message={error} />;
   if (error) {
     return (
       <ErrorState message={error} onRetry={() => setReloadCount((count) => count + 1)} />

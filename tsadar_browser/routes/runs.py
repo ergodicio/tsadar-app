@@ -10,7 +10,7 @@ from mlflow.exceptions import MlflowException
 
 from ..cache import UnsafeArtifactPath
 from ..deps import get_gateway
-from ..gateway import SHOT_PARAM, InvalidQuery, MlflowGateway
+from ..gateway import SHOT_PARAM, InvalidQuery, MlflowGateway, NotThomson
 from ..schemas import MetricHistory, RunDetail, RunPage
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,22 @@ EXTRA_CONTENT_TYPES = {
     ".yaml": "application/yaml",
     ".yml": "application/yaml",
 }
+
+
+def _not_thomson(exc: NotThomson) -> HTTPException:
+    """Translate an out-of-scope experiment or run into a 404 with a reason code.
+
+    404 rather than 403: the resource exists on the tracking server but not in
+    *this* browser, which covers Thomson analysis only. That is the same
+    distinction the dataset endpoints draw, and it keeps one code path in the
+    client -- the body nests under ``detail`` exactly like theirs, so the reason
+    reads as ``err.detail.reason``.
+
+    Note the neighbouring 400 for an experiment that does not exist at all: a
+    name nothing matches is a bad query value, whereas a real experiment holding
+    another project's runs is a resource this browser does not serve.
+    """
+    return HTTPException(status_code=404, detail={"reason": "not_thomson", "detail": str(exc)})
 
 
 def _reraise(exc: MlflowException, what: str) -> HTTPException:
@@ -89,6 +105,8 @@ def list_runs(
             page_size=min(page_size, gateway.settings.max_page_size),
             page_token=page_token,
         )
+    except NotThomson as exc:
+        raise _not_thomson(exc) from exc
     except InvalidQuery as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except MlflowException as exc:
@@ -99,6 +117,8 @@ def list_runs(
 def get_run(run_id: str, gateway: Annotated[MlflowGateway, Depends(get_gateway)]) -> RunDetail:
     try:
         return gateway.get_run(run_id)
+    except NotThomson as exc:
+        raise _not_thomson(exc) from exc
     except MlflowException as exc:
         raise _reraise(exc, "run") from exc
 
@@ -134,6 +154,8 @@ def get_artifact(
     """Serve artifact bytes through the API so the frontend needs no S3 credentials."""
     try:
         local = gateway.download_artifact(run_id, artifact_path)
+    except NotThomson as exc:
+        raise _not_thomson(exc) from exc
     except UnsafeArtifactPath as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except MlflowException as exc:

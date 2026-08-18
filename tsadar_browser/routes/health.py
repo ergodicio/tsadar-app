@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 
 from ..deps import get_gateway
 from ..gateway import MlflowGateway, MlflowUnavailable
-from ..schemas import CacheStats, HealthResponse
+from ..schemas import CacheStats, HealthResponse, ThomsonScopeStatus
 
 router = APIRouter(tags=["health"])
 
@@ -26,6 +26,25 @@ def health(gateway: MlflowGateway = Depends(get_gateway)) -> HealthResponse:
     except MlflowUnavailable as exc:
         reachable, error = False, str(exc)
 
+    # Resolving scope needs the experiment list, so it can only be reported when
+    # MLflow answers. A null `thomson` therefore means 'unknown', not 'unscoped'.
+    thomson = None
+    if reachable:
+        try:
+            scope = gateway.thomson_scope()
+            thomson = ThomsonScopeStatus(
+                scoped=scope.scoped,
+                experiment_count=len(scope.experiment_ids),
+                experiments=list(scope.names),
+                source=scope.source,
+                stale=scope.stale,
+                error=scope.error,
+            )
+        except Exception as exc:  # noqa: BLE001 - health must answer 200 regardless
+            thomson = ThomsonScopeStatus(
+                scoped=False, experiment_count=0, experiments=[], source="unknown", stale=True, error=str(exc)
+            )
+
     entries, total_bytes = cache.stats()
     return HealthResponse(
         status="ok" if reachable else "degraded",
@@ -38,4 +57,5 @@ def health(gateway: MlflowGateway = Depends(get_gateway)) -> HealthResponse:
             bytes=total_bytes,
             max_bytes=cache.max_bytes,
         ),
+        thomson=thomson,
     )

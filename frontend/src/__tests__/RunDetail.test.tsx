@@ -433,6 +433,31 @@ describe("failures", () => {
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 
+  it("explains a non-Thomson run instead of calling it an error", async () => {
+    // The tracking server is shared, so following a link to an ADEPT run is a
+    // normal thing to do. It must read as out of scope, not as a broken page --
+    // and must not offer a retry, since retrying cannot change the answer.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 404,
+        json: async () => ({
+          detail: {
+            reason: "not_thomson",
+            detail: "run adept-1 is not a Thomson analysis run.",
+          },
+        }),
+      })),
+    );
+    renderDetail();
+
+    await waitFor(() => expect(screen.getByText("Not a Thomson run")).toBeInTheDocument());
+    expect(screen.getByText("run adept-1 is not a Thomson analysis run.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("a failed loss history does not take down the rest of the page", async () => {
     stubApi({ failMetric: true });
     renderDetail();
